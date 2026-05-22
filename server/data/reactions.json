@@ -1,0 +1,23 @@
+{
+  "reactions": [
+    { "id": "r-001", "messageId": "tech-001", "emoji": "🔥", "username": "charlie_99",  "roomId": "technology" },
+    { "id": "r-002", "messageId": "tech-001", "emoji": "🔥", "username": "bao_dev",     "roomId": "technology" },
+    { "id": "r-003", "messageId": "tech-001", "emoji": "👍", "username": "dev_life",    "roomId": "technology" },
+    { "id": "r-004", "messageId": "tech-002", "emoji": "❤️", "username": "alice_dev",  "roomId": "technology" },
+    { "id": "r-005", "messageId": "tech-002", "emoji": "❤️", "username": "bob_coder",  "roomId": "technology" },
+    { "id": "r-006", "messageId": "tech-003", "emoji": "😂", "username": "alice_dev",  "roomId": "technology" },
+    { "id": "r-007", "messageId": "tech-004", "emoji": "👍", "username": "charlie_99", "roomId": "technology" },
+    { "id": "r-008", "messageId": "tech-004", "emoji": "👍", "username": "bao_dev",    "roomId": "technology" },
+    { "id": "r-009", "messageId": "prog-001", "emoji": "🤔", "username": "bob_coder",  "roomId": "programming" },
+    { "id": "r-010", "messageId": "prog-001", "emoji": "🤔", "username": "bao_dev",    "roomId": "programming" },
+    { "id": "r-011", "messageId": "prog-002", "emoji": "👍", "username": "dev_life",   "roomId": "programming" },
+    { "id": "r-012", "messageId": "prog-003", "emoji": "💯", "username": "bao_dev",    "roomId": "programming" },
+    { "id": "r-013", "messageId": "prog-003", "emoji": "💯", "username": "alice_dev",  "roomId": "programming" },
+    { "id": "r-014", "messageId": "prog-004", "emoji": "🔥", "username": "dev_life",   "roomId": "programming" },
+    { "id": "r-015", "messageId": "prog-004", "emoji": "🔥", "username": "bao_dev",    "roomId": "programming" },
+    { "id": "r-016", "messageId": "prog-004", "emoji": "🔥", "username": "bob_coder",  "roomId": "programming" },
+    { "id": "r-017", "messageId": "dm1-002",  "emoji": "🔥", "username": "alice_dev",  "roomId": "dm:bao_dev:alice_dev" },
+    { "id": "r-018", "messageId": "dm2-002",  "emoji": "👍", "username": "bao_dev",    "roomId": "dm:bao_dev:bob_coder" },
+    { "id": "r-019", "messageId": "dm3-001",  "emoji": "😂", "username": "bao_dev",    "roomId": "dm:bao_dev:charlie_99" }
+  ]
+}
