@@ -1,28 +1,6 @@
 <template>
-  <!--
-    MessageInput.vue
-    ============================================================
-    The message composition area at the bottom of ChatView.
-
-    Responsibilities:
-      1. Two-way binding of the message text via v-model
-      2. Emit 'typing' event on every keystroke (for Feature 1)
-         — the parent (ChatView) calls useSocket().emitTyping()
-      3. Send the message on Enter key or button click
-      4. Disable send when input is empty or socket is offline
-
-    Props:
-      disabled   (Boolean) — disables input when socket is disconnected
-      roomName   (String)  — used in placeholder text
-
-    Emits:
-      send(text)   — parent should call useSocket().sendMessage()
-      typing()     — parent should call useSocket().emitTyping()
-      stopTyping() — parent should call useSocket().stopTyping()
-  -->
   <div class="message-input-area">
 
-    <!-- Connection warning banner -->
     <div v-if="disabled" class="offline-banner">
       <i class="fa-solid fa-wifi-slash"></i>
       Reconnecting to chat...
@@ -30,12 +8,10 @@
 
     <div class="input-row">
 
-      <!-- Current user avatar -->
       <div class="input-avatar">
         <i class="fa-solid fa-user"></i>
       </div>
 
-      <!-- Text input -->
       <div class="input-wrapper">
         <textarea
           ref="textareaRef"
@@ -49,7 +25,6 @@
           @keydown.enter.shift.exact="handleNewline"
         ></textarea>
 
-        <!-- Emoji quick-insert buttons inside the input -->
         <div class="input-emoji-strip">
           <button
             v-for="emoji in quickEmojis"
@@ -62,7 +37,6 @@
         </div>
       </div>
 
-      <!-- Send button -->
       <button
         class="send-btn"
         :class="{ 'send-btn--active': text.trim().length > 0 && !disabled }"
@@ -75,7 +49,6 @@
 
     </div>
 
-    <!-- Helper text -->
     <div class="input-hint">
       Press <kbd>Enter</kbd> to send &nbsp;·&nbsp; <kbd>Shift+Enter</kbd> for new line
     </div>
@@ -86,12 +59,11 @@
 <script setup>
 import { ref, nextTick } from 'vue'
 
-// ── Props ──
 const props = defineProps({
   disabled: {
     type: Boolean,
     default: false
-    // Set to true when the socket is disconnected
+   
   },
   roomName: {
     type: String,
@@ -99,24 +71,13 @@ const props = defineProps({
   }
 })
 
-// ── Emits ──
 const emit = defineEmits(['send', 'typing', 'stopTyping'])
 
-// ── State ──
 const text = ref('')
 const textareaRef = ref(null)
 
-// Quick emoji buttons shown inside the input bar
 const quickEmojis = ['👍', '❤️', '😂', '😮', '🔥']
 
-// ── Methods ──
-
-/**
- * handleInput — called on every keystroke in the textarea.
- * 1. Auto-resize the textarea to fit content
- * 2. Emit 'typing' so ChatView can call useSocket().emitTyping()
- *    The actual 300ms debounce lives inside useSocket.js.
- */
 function handleInput() {
   autoResize()
   if (text.value.trim()) {
@@ -126,12 +87,6 @@ function handleInput() {
   }
 }
 
-/**
- * handleSend — called on Enter key or send button click.
- * Only sends if the text is non-empty and socket is connected.
- * Emits 'send' with the trimmed text string.
- * Also emits 'stopTyping' because sending clears the typing indicator.
- */
 async function handleSend() {
   const trimmed = text.value.trim()
   if (!trimmed || props.disabled) return
@@ -141,25 +96,16 @@ async function handleSend() {
 
   text.value = ''
 
-  // Reset textarea height after clearing
+
   await nextTick()
   autoResize()
   textareaRef.value?.focus()
 }
 
-/**
- * handleNewline — Shift+Enter inserts a real newline.
- * We don't need to do anything special because the textarea
- * handles it natively; we just need to auto-resize.
- */
 function handleNewline() {
   nextTick(autoResize)
 }
 
-/**
- * Auto-resize the textarea height to fit its content.
- * Reset height first so it can shrink when text is deleted.
- */
 function autoResize() {
   const el = textareaRef.value
   if (!el) return
@@ -167,9 +113,6 @@ function autoResize() {
   el.style.height = Math.min(el.scrollHeight, 120) + 'px'
 }
 
-/**
- * Insert a quick emoji at the cursor position.
- */
 function insertEmoji(emoji) {
   const el = textareaRef.value
   if (!el) {
@@ -189,7 +132,6 @@ function insertEmoji(emoji) {
 </script>
 
 <style scoped>
-/* ---- Container ---- */
 .message-input-area {
   border-top: 1px solid #E5E7EB;
   background: white;
@@ -197,7 +139,6 @@ function insertEmoji(emoji) {
   flex-shrink: 0;
 }
 
-/* ---- Offline banner ---- */
 .offline-banner {
   background: #FEF3C7;
   border: 1px solid #FCD34D;
@@ -211,14 +152,12 @@ function insertEmoji(emoji) {
   margin-bottom: 8px;
 }
 
-/* ---- Input row ---- */
 .input-row {
   display: flex;
   align-items: flex-end;
   gap: 10px;
 }
 
-/* Current user avatar */
 .input-avatar {
   width: 32px;
   height: 32px;
@@ -233,7 +172,6 @@ function insertEmoji(emoji) {
   margin-bottom: 2px;
 }
 
-/* ---- Input wrapper ---- */
 .input-wrapper {
   flex: 1;
   background: #F9FAFB;
@@ -248,7 +186,6 @@ function insertEmoji(emoji) {
   background: white;
 }
 
-/* ---- Textarea ---- */
 .msg-textarea {
   width: 100%;
   border: none;
@@ -266,7 +203,7 @@ function insertEmoji(emoji) {
 .msg-textarea::placeholder { color: #9CA3AF; }
 .msg-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
 
-/* ---- Quick emoji strip ---- */
+
 .input-emoji-strip {
   display: flex;
   gap: 2px;
@@ -292,7 +229,6 @@ function insertEmoji(emoji) {
   transform: scale(1.2);
 }
 
-/* ---- Send button ---- */
 .send-btn {
   width: 36px;
   height: 36px;
@@ -309,7 +245,7 @@ function insertEmoji(emoji) {
   border: none;
   cursor: not-allowed;
 }
-/* Active state when text is entered */
+
 .send-btn--active {
   background: #FF4500;
   color: white;
@@ -320,7 +256,6 @@ function insertEmoji(emoji) {
   transform: scale(1.05);
 }
 
-/* ---- Hint text ---- */
 .input-hint {
   font-size: 11px;
   color: #D1D5DB;
