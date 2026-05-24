@@ -37,7 +37,7 @@
           <span>Live Chat Rooms</span>
           <!-- Connection status indicator -->
           <span class="conn-badge" :class="isConnected ? 'conn-badge--online' : 'conn-badge--offline'">
-            {{ isConnected ? 'Connected' : 'Offline' }}
+            {{ isConnected ? 'Connected' : 'Demo' }}
           </span>
         </div>
 
@@ -141,7 +141,7 @@
             Message input — triggers typing events + sends messages
           -->
           <MessageInput
-            :disabled="!isConnected"
+            :disabled="false"
             :roomName="activeRoom.name"
             @send="handleSend"
             @typing="handleTyping"
@@ -215,10 +215,10 @@ const activeRoom = computed(() =>
 )
 
 // ── Select a room ──
-function selectRoom(room) {
+async function selectRoom(room) {
   // Leave the previous room if any
   if (activeRoomId.value) {
-    leaveRoom(activeRoomId.value)
+    leaveRoom(activeRoomId.value, currentUser.value)
   }
 
   activeRoomId.value = room.id
@@ -226,20 +226,28 @@ function selectRoom(room) {
   // Clear unread badge for this room
   room.unread = 0
 
-  // Load mock messages for this room
-  // In production: fetch from REST API GET /api/messages/:roomId
-  loadMockMessages(room.id)
+  await loadRoomMessages(room.id)
 
   // Join the socket room — server will add us to this room's broadcast group
-  joinRoom(room.id)
+  joinRoom(room.id, currentUser.value)
 
   // Mark all messages as seen — triggers receipt-update for senders
   markRoomSeen(room.id, currentUser.value)
 }
 
-// ── Load mock messages ──
-// Replace with: const res = await axios.get(`/api/messages/${roomId}`)
-function loadMockMessages(roomId) {
+// Loads chat history from MySQL and falls back to demo messages.
+async function loadRoomMessages(roomId) {
+  try {
+    const res = await fetch(`http://localhost:3000/api/messages/${encodeURIComponent(roomId)}`)
+    const data = await res.json()
+    if (data.success) {
+      messages.value = data.messages
+      return
+    }
+  } catch {
+    // keep using demo data when the backend is not running
+  }
+
   const mockData = {
     technology: [
       { id: 1, username: 'alice_dev',  text: 'Has anyone tried the new M4 MacBook Pro?',              timestamp: Date.now() - 600000, status: 'seen',      reactions: { '🔥': ['alice_dev', 'charlie'], '👍': ['bao_dev'] } },
@@ -263,7 +271,12 @@ function loadMockMessages(roomId) {
 onNewMessage((message) => {
   // If this message is for the active room, add it to the list
   if (message.roomId === activeRoomId.value) {
-    messages.value.push(message)
+    const tempIndex = messages.value.findIndex(m => m.id === message.tempId)
+    if (tempIndex >= 0) {
+      messages.value[tempIndex] = message
+    } else if (!messages.value.some(m => m.id === message.id)) {
+      messages.value.push(message)
+    }
     // Update the room's last message preview
     const room = rooms.value.find(r => r.id === message.roomId)
     if (room) room.lastMessage = message.text
@@ -276,8 +289,8 @@ onNewMessage((message) => {
 
 // Read receipt update — server tells us our message was seen
 // Feature 1B: advance the status badge on our own messages
-onReceiptUpdate(({ messageId, status }) => {
-  const msg = messages.value.find(m => m.id === messageId)
+onReceiptUpdate(({ messageId, tempId, status }) => {
+  const msg = messages.value.find(m => m.id === messageId || m.id === tempId)
   if (msg) msg.status = status
 })
 
@@ -298,8 +311,9 @@ onReactionUpdate(({ messageId, reactions }) => {
  * 3. Server saves to DB + broadcasts back to all room members
  */
 function handleSend(text) {
+  const tempId = 'temp-' + Date.now()
   const tempMessage = {
-    id: 'temp-' + Date.now(),
+    id: tempId,
     username: currentUser.value,
     text,
     timestamp: Date.now(),
@@ -314,7 +328,7 @@ function handleSend(text) {
   if (activeRoom.value) activeRoom.value.lastMessage = text
 
   // Emit to server (server replaces tempId with real DB id)
-  sendMessage(activeRoomId.value, text, currentUser.value)
+  sendMessage(activeRoomId.value, text, currentUser.value, tempId)
 }
 
 /**
@@ -356,7 +370,7 @@ function handleReaction(messageId, emoji) {
   }
 
   // Emit to server — server persists + broadcasts to room
-  emitReaction(messageId, emoji, currentUser.value)
+  emitReaction(messageId, emoji, currentUser.value, activeRoomId.value)
 }
 
 // ── Avatar color helper ──
@@ -380,254 +394,6 @@ onMounted(() => {
 
 // ── Cleanup on leave ──
 onUnmounted(() => {
-  if (activeRoomId.value) leaveRoom(activeRoomId.value)
+  if (activeRoomId.value) leaveRoom(activeRoomId.value, currentUser.value)
 })
 </script>
-
-<style scoped>
-/* =============================================
-   CHAT PAGE LAYOUT
-   ============================================= */
-.chat-page {
-  display: flex;
-  height: calc(100vh - 48px); /* full height minus navbar */
-  overflow: hidden;
-}
-
-/* =============================================
-   ROOM LIST PANEL (left)
-   ============================================= */
-.room-list-panel {
-  width: 280px;
-  flex-shrink: 0;
-  background: white;
-  border-right: 1px solid #E5E7EB;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.room-list-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 16px;
-  font-size: 15px;
-  font-weight: 700;
-  border-bottom: 1px solid #F3F4F6;
-  background: #FAFAFA;
-}
-
-/* Connection status badge */
-.conn-badge {
-  margin-left: auto;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 10px;
-  letter-spacing: 0.03em;
-}
-.conn-badge--online  { background: #DCFCE7; color: #15803D; }
-.conn-badge--offline { background: #FEF3C7; color: #92400E; }
-
-/* Room search */
-.room-search-wrap {
-  position: relative;
-  padding: 8px 12px;
-  border-bottom: 1px solid #F3F4F6;
-}
-.room-search-icon {
-  position: absolute;
-  left: 22px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 12px;
-  color: #9CA3AF;
-}
-.room-search-input {
-  width: 100%;
-  padding: 6px 10px 6px 28px;
-  background: #F9FAFB;
-  border: 1px solid #E5E7EB;
-  border-radius: 16px;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-.room-search-input:focus { border-color: #FF4500; }
-
-/* Room items list */
-.room-items {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 0;
-}
-
-.room-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  cursor: pointer;
-  transition: background 0.1s;
-  border-left: 3px solid transparent;
-}
-.room-item:hover { background: #F9FAFB; }
-.room-item--active {
-  background: #FFF4F0;
-  border-left-color: #FF4500;
-}
-
-.room-icon {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 15px;
-  flex-shrink: 0;
-}
-
-.room-info { flex: 1; min-width: 0; }
-.room-name { font-size: 13px; font-weight: 600; color: #111827; }
-.room-last-msg {
-  font-size: 12px;
-  color: #6B7280;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: 1px;
-}
-
-.room-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-}
-.room-online {
-  font-size: 11px;
-  color: #22C55E;
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-.online-dot {
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: #22C55E;
-  display: inline-block;
-}
-.online-dot--sm { width: 6px; height: 6px; }
-
-.room-unread {
-  background: #FF4500;
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 5px;
-  border-radius: 8px;
-  min-width: 18px;
-  text-align: center;
-}
-
-/* =============================================
-   CHAT PANEL (right)
-   ============================================= */
-.chat-panel {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: white;
-  overflow: hidden;
-}
-
-/* No room selected */
-.no-room-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: #9CA3AF;
-  gap: 12px;
-  padding: 40px;
-}
-.no-room-icon { font-size: 56px; color: #E5E7EB; }
-.no-room-state h3 { font-size: 18px; color: #6B7280; }
-.no-room-state p  { font-size: 14px; }
-
-/* ---- Chat header ---- */
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  border-bottom: 1px solid #F3F4F6;
-  background: white;
-  flex-shrink: 0;
-}
-.chat-header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.chat-room-icon {
-  width: 40px; height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 18px;
-}
-.chat-room-name { font-size: 16px; font-weight: 700; }
-.chat-room-sub {
-  font-size: 12px;
-  color: #6B7280;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 1px;
-}
-
-/* Online member avatars */
-.online-members {
-  display: flex;
-  align-items: center;
-}
-.online-member-avatar {
-  width: 28px; height: 28px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 11px;
-  border: 2px solid white;
-  margin-left: -6px;
-  cursor: default;
-}
-.online-members .online-member-avatar:first-child { margin-left: 0; }
-.online-more {
-  font-size: 11px;
-  color: #6B7280;
-  margin-left: 6px;
-}
-
-/* =============================================
-   RESPONSIVE
-   ============================================= */
-@media (max-width: 768px) {
-  .room-list-panel { width: 72px; }
-  .room-info, .room-meta, .room-search-wrap { display: none; }
-  .room-item { justify-content: center; padding: 10px; }
-  .chat-header { padding: 10px 12px; }
-  .online-members { display: none; }
-}
-</style>

@@ -1,28 +1,6 @@
-// ============================================================
-// src/composables/useSocket.js
-// ============================================================
-// This is the central Socket.io composable shared by both
-// ChatView and InboxView.
-//
-// It handles ALL real-time features:
-//   Feature 1 — Typing indicators + message read receipts
-//   Feature 2 — Per-message emoji reactions with live updates
-//
-// WHY a composable?
-//   Vue 3 composables are functions that encapsulate reactive
-//   state and logic. Instead of duplicating socket code in
-//   every component, we define it once here and import it
-//   wherever needed. The socket connection is created ONCE
-//   at module level (outside the function) so all components
-//   share the same connection.
-// ============================================================
-
 import { ref, onUnmounted } from 'vue'
 import { io } from 'socket.io-client'
 
-// ── Single shared socket connection ──
-// Created once when the module loads, reused by all callers.
-// Change the URL to your backend when deploying.
 const socket = io('http://localhost:3000', {
   autoConnect: true,
   reconnection: true,
@@ -30,212 +8,212 @@ const socket = io('http://localhost:3000', {
   reconnectionDelay: 1000,
 })
 
-// ── Connection status (shared across all components) ──
 const isConnected = ref(false)
-socket.on('connect',    () => { isConnected.value = true })
-socket.on('disconnect', () => { isConnected.value = false })
+const isDemoMode = ref(true)
+
+const messageHandlers = []
+const receiptHandlers = []
+const reactionHandlers = []
+const demoNames = ['alice_dev', 'charlie_99', 'bob_coder', 'dev_life']
+
+socket.on('connect', () => {
+  isConnected.value = true
+  isDemoMode.value = false
+})
+
+socket.on('disconnect', () => {
+  isConnected.value = false
+  isDemoMode.value = true
+})
+
+socket.on('new-message', (message) => {
+  messageHandlers.forEach(handler => handler(message))
+})
+
+socket.on('receipt-update', (data) => {
+  receiptHandlers.forEach(handler => handler(data))
+})
+
+socket.on('reaction-updated', (data) => {
+  reactionHandlers.forEach(handler => handler(data))
+})
 
 export function useSocket() {
-
-  // ============================================================
-  // FEATURE 1A — TYPING INDICATORS
-  // ============================================================
-  // typingUsers: reactive array of usernames currently typing
-  // in the active room. The template watches this to show/hide
-  // the TypingIndicator component.
   const typingUsers = ref([])
-
-  // Debounce timer — prevents flooding the server with events
-  // on every keystroke. We wait 300ms of inactivity before
-  // sending stop-typing.
+  const onlineUsers = ref(['alice_dev', 'charlie_99', 'bob_coder', 'dev_life', 'bao_dev'])
   let typingTimer = null
+  const demoTimers = []
 
-  /**
-   * Call this from MessageInput on every @input event.
-   * @param {string} roomId   - the chat room identifier
-   * @param {string} username - the current user's username
-   */
-  function emitTyping(roomId, username) {
-    // Tell the server this user started/continued typing
-    socket.emit('typing', { roomId, username })
-
-    // Reset the debounce timer
-    clearTimeout(typingTimer)
-
-    // After 300ms of no keystrokes, send stop-typing
-    typingTimer = setTimeout(() => {
-      socket.emit('stop-typing', { roomId, username })
-    }, 300)
-  }
-
-  /**
-   * Call this when the user sends a message (typing stops).
-   */
-  function stopTyping(roomId, username) {
-    clearTimeout(typingTimer)
-    socket.emit('stop-typing', { roomId, username })
-  }
-
-  // Listen for other users' typing status
-  // The server broadcasts these to everyone EXCEPT the sender
   socket.on('user-typing', (username) => {
-    if (!typingUsers.value.includes(username)) {
-      typingUsers.value.push(username)
-    }
+    addTypingUser(username)
   })
+
   socket.on('user-stop-typing', (username) => {
-    typingUsers.value = typingUsers.value.filter(u => u !== username)
+    removeTypingUser(username)
   })
 
-  // ============================================================
-  // FEATURE 1B — MESSAGE READ RECEIPTS
-  // ============================================================
-  // Each message has a status: 'sent' | 'delivered' | 'seen'
-  // The server advances the status and broadcasts back:
-  //   sent      → message saved to DB, sender sees ✓
-  //   delivered → recipient is online, sender sees ✓✓
-  //   seen      → recipient opened the chat, sender sees ✓✓ (blue)
-
-  /**
-   * Mark all messages in a room as seen by the current user.
-   * Called when the user opens/focuses a chat room.
-   */
-  function markRoomSeen(roomId, username) {
-    socket.emit('mark-seen', { roomId, username })
-  }
-
-  // Listen for receipt status updates from the server
-  // The server sends this back to the SENDER when the recipient
-  // reads their message.
-  // messages is the reactive array managed per-component,
-  // so we expose a callback pattern here.
-  const receiptHandlers = []
-  function onReceiptUpdate(handler) {
-    receiptHandlers.push(handler)
-  }
-  socket.on('receipt-update', (data) => {
-    // data = { messageId, status: 'delivered'|'seen' }
-    receiptHandlers.forEach(h => h(data))
-  })
-
-  // ============================================================
-  // MESSAGES
-  // ============================================================
-  const messages = ref([])
-
-  /**
-   * Join a socket room. Call this in onMounted of ChatView.
-   * The server adds this socket to a room so it only receives
-   * events for that community/DM thread.
-   */
-  function joinRoom(roomId) {
-    socket.emit('join-room', roomId)
-  }
-
-  function leaveRoom(roomId) {
-    socket.emit('leave-room', roomId)
-  }
-
-  /**
-   * Emit a new message to the server.
-   * The server saves it, assigns an ID + timestamp + status:'sent',
-   * then broadcasts it back to all room members.
-   */
-  function sendMessage(roomId, text, username) {
-    const payload = {
-      roomId,
-      text,
-      username,
-      tempId: Date.now(), // client-side temp ID for optimistic UI
-    }
-    socket.emit('send-message', payload)
-  }
-
-  // Receive new messages from the server (including your own,
-  // which comes back with the real DB id + timestamp).
-  const messageHandlers = []
-  function onNewMessage(handler) {
-    messageHandlers.push(handler)
-  }
-  socket.on('new-message', (message) => {
-    messageHandlers.forEach(h => h(message))
-  })
-
-  // ============================================================
-  // FEATURE 2 — EMOJI REACTIONS
-  // ============================================================
-  // Each message stores reactions as:
-  //   { '👍': ['alice', 'bob'], '❤️': ['charlie'] }
-  //
-  // Toggle logic: if the user's name is already in the array,
-  // remove it (un-react). Otherwise add it.
-  // A unique DB constraint on (messageId, emoji, userId) prevents
-  // duplicate reactions.
-
-  /**
-   * Toggle an emoji reaction on a message.
-   * @param {string|number} messageId
-   * @param {string} emoji    - e.g. '👍'
-   * @param {string} username - current user
-   */
-  function emitReaction(messageId, emoji, username) {
-    socket.emit('add-reaction', { messageId, emoji, username })
-  }
-
-  // The server broadcasts the updated reactions object for a
-  // message to all room members.
-  const reactionHandlers = []
-  function onReactionUpdate(handler) {
-    reactionHandlers.push(handler)
-  }
-  socket.on('reaction-updated', (data) => {
-    // data = { messageId, reactions: { '👍': ['alice'], ... } }
-    reactionHandlers.forEach(h => h(data))
-  })
-
-  // ============================================================
-  // ONLINE PRESENCE
-  // ============================================================
-  const onlineUsers = ref([])
   socket.on('room-presence', (users) => {
     onlineUsers.value = users
   })
 
-  // ============================================================
-  // CLEANUP
-  // ============================================================
-  // When the component using this composable is destroyed,
-  // remove the event handlers it registered to prevent memory
-  // leaks and duplicate handler calls.
+  function addTypingUser(username) {
+    if (username && !typingUsers.value.includes(username)) {
+      typingUsers.value.push(username)
+    }
+  }
+
+  function removeTypingUser(username) {
+    typingUsers.value = typingUsers.value.filter(user => user !== username)
+  }
+
+  function pickDemoUser(username) {
+    return demoNames.find(name => name !== username) || 'alice_dev'
+  }
+
+  function setDemoTimer(callback, delay) {
+    const timer = setTimeout(callback, delay)
+    demoTimers.push(timer)
+    return timer
+  }
+
+  // Shows demo typing when there is no real socket server.
+  function emitTyping(roomId, username) {
+    if (isConnected.value) {
+      socket.emit('typing', { roomId, username })
+    } else {
+      const demoUser = pickDemoUser(username)
+      addTypingUser(demoUser)
+      setDemoTimer(() => removeTypingUser(demoUser), 1200)
+    }
+
+    clearTimeout(typingTimer)
+    typingTimer = setTimeout(() => stopTyping(roomId, username), 450)
+  }
+
+  function stopTyping(roomId, username) {
+    clearTimeout(typingTimer)
+    if (isConnected.value) {
+      socket.emit('stop-typing', { roomId, username })
+    }
+  }
+
+  // Tells the backend this room has been opened.
+  function markRoomSeen(roomId, username) {
+    if (isConnected.value) {
+      socket.emit('mark-seen', { roomId, username })
+    }
+  }
+
+  // Joins the selected chat room.
+  function joinRoom(roomId, username) {
+    if (isConnected.value) {
+      socket.emit('join-room', { roomId, username })
+    }
+  }
+
+  // Leaves the previous chat room.
+  function leaveRoom(roomId, username) {
+    if (isConnected.value) {
+      socket.emit('leave-room', { roomId, username })
+    }
+    typingUsers.value = []
+  }
+
+  // Sends a new message to the backend.
+  function sendMessage(roomId, text, username, tempId = Date.now()) {
+    const payload = { roomId, text, username, tempId }
+
+    if (isConnected.value) {
+      socket.emit('send-message', payload)
+      return
+    }
+
+    fetch('http://localhost:3000/api/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          messageHandlers.forEach(handler => handler(data.message))
+        }
+      })
+      .catch(() => {})
+
+    setDemoTimer(() => {
+      receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'delivered' }))
+    }, 500)
+
+    setDemoTimer(() => {
+      receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'seen' }))
+    }, 1200)
+
+    setDemoTimer(() => {
+      reactionHandlers.forEach(handler => handler({
+        messageId: tempId,
+        reactions: { '👍': [pickDemoUser(username)] },
+      }))
+    }, 1800)
+  }
+
+  // Registers a new message listener.
+  function onNewMessage(handler) {
+    messageHandlers.push(handler)
+  }
+
+  // Registers a read receipt listener.
+  function onReceiptUpdate(handler) {
+    receiptHandlers.push(handler)
+  }
+
+  // Sends a reaction update to the backend.
+  function emitReaction(messageId, emoji, username, roomId) {
+    if (isConnected.value) {
+      socket.emit('add-reaction', { messageId, emoji, username, roomId })
+      return
+    }
+
+    fetch('http://localhost:3000/api/reactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId, emoji, username, roomId }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.success) {
+          reactionHandlers.forEach(handler => handler({ messageId, reactions: data.reactions }))
+        }
+      })
+      .catch(() => {})
+  }
+
+  function onReactionUpdate(handler) {
+    reactionHandlers.push(handler)
+  }
+
   onUnmounted(() => {
+    clearTimeout(typingTimer)
+    demoTimers.forEach(timer => clearTimeout(timer))
     socket.off('user-typing')
     socket.off('user-stop-typing')
-    socket.off('receipt-update')
-    socket.off('new-message')
-    socket.off('reaction-updated')
     socket.off('room-presence')
-    clearTimeout(typingTimer)
   })
 
-  // ── Expose everything the components need ──
   return {
     socket,
     isConnected,
-    messages,
+    isDemoMode,
     typingUsers,
     onlineUsers,
-    // Typing
     emitTyping,
     stopTyping,
-    // Receipts
     markRoomSeen,
-    onReceiptUpdate,
-    // Messages
     joinRoom,
     leaveRoom,
     sendMessage,
     onNewMessage,
-    // Reactions
+    onReceiptUpdate,
     emitReaction,
     onReactionUpdate,
   }
