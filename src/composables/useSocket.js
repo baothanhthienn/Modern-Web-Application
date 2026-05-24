@@ -38,6 +38,10 @@ socket.on('reaction-updated', (data) => {
   reactionHandlers.forEach(handler => handler(data))
 })
 
+socket.on('chat-error', (message) => {
+  console.error('[Chat backend]', message)
+})
+
 export function useSocket() {
   const typingUsers = ref([])
   const onlineUsers = ref(['alice_dev', 'charlie_99', 'bob_coder', 'dev_life', 'bao_dev'])
@@ -123,11 +127,6 @@ export function useSocket() {
   function sendMessage(roomId, text, username, tempId = Date.now()) {
     const payload = { roomId, text, username, tempId }
 
-    if (isConnected.value) {
-      socket.emit('send-message', payload)
-      return
-    }
-
     fetch('http://localhost:3000/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -137,24 +136,31 @@ export function useSocket() {
       .then(data => {
         if (data.success) {
           messageHandlers.forEach(handler => handler(data.message))
+          if (isConnected.value) {
+            socket.emit('broadcast-message', data.message)
+          }
         }
       })
-      .catch(() => {})
+      .catch(error => {
+        console.error('[Chat save failed]', error)
+      })
 
-    setDemoTimer(() => {
-      receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'delivered' }))
-    }, 500)
+    if (!isConnected.value) {
+      setDemoTimer(() => {
+        receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'delivered' }))
+      }, 500)
 
-    setDemoTimer(() => {
-      receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'seen' }))
-    }, 1200)
+      setDemoTimer(() => {
+        receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'seen' }))
+      }, 1200)
 
-    setDemoTimer(() => {
-      reactionHandlers.forEach(handler => handler({
-        messageId: tempId,
-        reactions: { '👍': [pickDemoUser(username)] },
-      }))
-    }, 1800)
+      setDemoTimer(() => {
+        reactionHandlers.forEach(handler => handler({
+          messageId: tempId,
+          reactions: { '👍': [pickDemoUser(username)] },
+        }))
+      }, 1800)
+    }
   }
 
   // Registers a new message listener.

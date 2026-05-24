@@ -2,7 +2,23 @@ import express from 'express'
 import http from 'http'
 import cors from 'cors'
 import mysql from 'mysql2/promise'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { Server } from 'socket.io'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const envPath = path.join(__dirname, '.env')
+
+if (fs.existsSync(envPath)) {
+  const envText = fs.readFileSync(envPath, 'utf8')
+  for (const line of envText.split('\n')) {
+    const trimmed = line.trim()
+    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
+    const [key, ...valueParts] = trimmed.split('=')
+    if (!process.env[key]) process.env[key] = valueParts.join('=').trim()
+  }
+}
 
 const app = express()
 const server = http.createServer(app)
@@ -14,10 +30,10 @@ const io = new Server(server, {
 })
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'ictstu-db1.cc.swin.edu.au',
+  host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 's105292789',
-  password: process.env.DB_PASSWORD || '',
+  user: process.env.DB_USER || 'root',
+  password: process.env.DB_PASSWORD || '120806',
   database: process.env.DB_NAME || 's105292789_db',
   waitForConnections: true,
   connectionLimit: 10,
@@ -206,17 +222,22 @@ io.on('connection', (socket) => {
   socketUsers.set(socket.id, { username: null, rooms: new Set() })
 
   socket.on('join-room', async ({ roomId, username }) => {
-    socket.join(roomId)
+    try {
+      socket.join(roomId)
 
-    const userData = socketUsers.get(socket.id)
-    userData.username = username
-    userData.rooms.add(roomId)
+      const userData = socketUsers.get(socket.id)
+      userData.username = username
+      userData.rooms.add(roomId)
 
-    if (!roomPresence.has(roomId)) roomPresence.set(roomId, new Set())
-    roomPresence.get(roomId).add(username)
+      if (!roomPresence.has(roomId)) roomPresence.set(roomId, new Set())
+      roomPresence.get(roomId).add(username)
 
-    io.to(roomId).emit('room-presence', Array.from(roomPresence.get(roomId)))
-    await updateDeliveryStatus(roomId, username)
+      io.to(roomId).emit('room-presence', Array.from(roomPresence.get(roomId)))
+      await updateDeliveryStatus(roomId, username)
+    } catch (error) {
+      console.error('[join-room failed]', error.message)
+      socket.emit('chat-error', error.message)
+    }
   })
 
   socket.on('leave-room', ({ roomId, username }) => {
@@ -258,6 +279,11 @@ io.on('connection', (socket) => {
     } catch (error) {
       socket.emit('chat-error', error.message)
     }
+  })
+
+  socket.on('broadcast-message', async (message) => {
+    if (!message?.roomId) return
+    socket.to(message.roomId).emit('new-message', message)
   })
 
   socket.on('mark-seen', async ({ roomId, username }) => {
