@@ -14,10 +14,10 @@ const io = new Server(server, {
 })
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
+  host: process.env.DB_HOST || 'ictstu-db1.cc.swin.edu.au',
   port: process.env.DB_PORT || 3306,
   user: process.env.DB_USER || 's105292789',
-  password: process.env.DB_PASSWORD || '120806',
+  password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 's105292789_db',
   waitForConnections: true,
   connectionLimit: 10,
