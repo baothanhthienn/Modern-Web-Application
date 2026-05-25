@@ -1,11 +1,25 @@
 <template>
-  <router-view v-slot="{ Component }">
-    <transition name="fade" mode="out-in">
-      <component :is="Component" />
-    </transition>
-  </router-view>
+  <nav class="navbar navbar-dark bg-dark px-3">
+    <router-link to="/profile" class="navbar-brand">
+      Web App
+    </router-link>
+
+    <div>
+      <router-link to="/profile" class="btn btn-outline-light me-2">
+        Profile
+      </router-link>
+
+      <router-link to="/notifications" class="btn btn-outline-light">
+        Notifications
+      </router-link>
+    </div>
+  </nav>
+
+  <router-view />
 </template>
 
-<script setup>
-
+<script>
+export default {
+  name: "App"
+};
 </script>
