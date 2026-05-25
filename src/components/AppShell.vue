@@ -144,12 +144,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { clearStoredAuth, getStoredUser, logout, restoreAuthSession } from '../services/auth.js'
+import { clearStoredAuth, logout, restoreAuthSession, useAuthUser } from '../services/auth.js'
 
 const router = useRouter()
 const route = useRoute()
 const isHomeSelected = computed(() => !route.query.feed && !route.query.r)
-const currentUser = ref(getStoredUser())
+const currentUser = useAuthUser()
 
 async function signOut() {
   await logout().catch(() => {})
@@ -158,7 +158,6 @@ async function signOut() {
 }
 
 onMounted(async () => {
-  if (!currentUser.value) return
   try {
     currentUser.value = await restoreAuthSession()
   } catch {

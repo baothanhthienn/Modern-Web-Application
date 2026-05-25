@@ -222,7 +222,7 @@ import AppShell from '../components/AppShell.vue'
 import MessageList from '../components/chat/MessageList.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
 import { useLocalMessages } from '../composables/useLocalMessages.js'
-import { getStoredUser } from '../services/auth.js'
+import { useAuthUser } from '../services/auth.js'
 
 const {
   loadMessages,
@@ -231,7 +231,8 @@ const {
 } = useLocalMessages()
 
 // Use the authenticated account when present; keep demo identity for guest preview mode.
-const currentUser = ref(getStoredUser()?.username || 'bao_dev')
+const authenticatedUser = useAuthUser()
+const currentUser = computed(() => authenticatedUser.value?.username || 'bao_dev')
 
 // ── State ──
 const activeConvId    = ref(null)
