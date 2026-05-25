@@ -18,7 +18,7 @@
       </div>
 
       <h1 class="auth-title">Log in</h1>
-      <p class="auth-subtitle">By continuing, you agree to our User Agreement and Privacy Policy.</p>
+      <p class="auth-subtitle">Log in to vote, comment, and join your communities.</p>
 
       <!-- Error banner -->
       <div v-if="submitError" class="error-banner">
@@ -28,18 +28,18 @@
 
       <form @submit.prevent="handleSubmit" class="auth-form" novalidate>
 
-        <!-- Username field -->
-        <div class="form-group" :class="{ 'form-group--error': errors.username }">
-          <label class="form-label">Username</label>
+        <!-- Account identifier field -->
+        <div class="form-group" :class="{ 'form-group--error': errors.identifier }">
+          <label class="form-label">Username or email</label>
           <input
-            v-model="form.username"
+            v-model="form.identifier"
             type="text"
             class="form-input"
-            placeholder="Enter your username"
+            placeholder="Username or email"
             autocomplete="username"
-            @blur="validateField('username')"
+            @blur="validateField('identifier')"
           />
-          <span v-if="errors.username" class="field-error">{{ errors.username }}</span>
+          <span v-if="errors.identifier" class="field-error">{{ errors.identifier }}</span>
         </div>
 
         <!-- Password field -->
@@ -74,16 +74,6 @@
 
       </form>
 
-      <div class="auth-divider"><span>OR</span></div>
-
-      <!-- Social login placeholder -->
-      <button class="btn-social">
-        <i class="fa-brands fa-google"></i> Continue with Google
-      </button>
-      <button class="btn-social">
-        <i class="fa-brands fa-apple"></i> Continue with Apple
-      </button>
-
       <p class="auth-switch">
         New to Reddit?
         <router-link to="/register" class="auth-switch-link">Sign Up</router-link>
@@ -95,25 +85,24 @@
 <script setup>
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
+import { login, saveAuthSession } from '../services/auth.js'
 
 const router = useRouter()
 
 // ── Form state ──
-const form = reactive({ username: '', password: '' })
-const errors = reactive({ username: '', password: '' })
+const form = reactive({ identifier: '', password: '' })
+const errors = reactive({ identifier: '', password: '' })
 const submitError = ref('')
 const isLoading = ref(false)
 const showPassword = ref(false)
 
 // ── Per-field validation ──
 function validateField(field) {
-  if (field === 'username') {
-    if (!form.username.trim()) {
-      errors.username = 'Username is required'
-    } else if (form.username.length < 3) {
-      errors.username = 'Username must be at least 3 characters'
+  if (field === 'identifier') {
+    if (!form.identifier.trim()) {
+      errors.identifier = 'Username or email is required'
     } else {
-      errors.username = ''
+      errors.identifier = ''
     }
   }
   if (field === 'password') {
@@ -130,28 +119,22 @@ function validateField(field) {
 // ── Form submit ──
 async function handleSubmit() {
   // Validate all fields
-  validateField('username')
+  validateField('identifier')
   validateField('password')
-  if (errors.username || errors.password) return
+  if (errors.identifier || errors.password) return
 
   isLoading.value = true
   submitError.value = ''
 
   try {
-    // In production: POST /api/auth/login
-    // For now: mock auth — any username + password works
-    await new Promise(r => setTimeout(r, 800))
-
-    // Mock: store logged-in user in localStorage
-    localStorage.setItem('reddit_user', JSON.stringify({
-      username: form.username,
-      loggedIn: true,
-      joinDate: new Date().toISOString(),
-    }))
-
+    const auth = await login({
+      identifier: form.identifier.trim(),
+      password: form.password,
+    })
+    saveAuthSession(auth)
     router.push('/')
-  } catch (err) {
-    submitError.value = 'Invalid username or password. Please try again.'
+  } catch (error) {
+    submitError.value = error.message
   } finally {
     isLoading.value = false
   }
@@ -240,23 +223,7 @@ async function handleSubmit() {
 .btn-submit:hover { background: #E03D00; }
 .btn-submit:disabled { background: #D1D5DB; cursor: not-allowed; }
 
-.auth-divider {
-  display: flex; align-items: center; gap: 12px; margin: 16px 0;
-  font-size: 12px; color: #878A8C; font-weight: 700; text-transform: uppercase;
-}
-.auth-divider::before, .auth-divider::after {
-  content: ''; flex: 1; height: 1px; background: #EDEFF1;
-}
-
-.btn-social {
-  width: 100%; padding: 10px; background: white; border: 1px solid #878A8C;
-  border-radius: 20px; font-size: 14px; font-weight: 700; font-family: inherit;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  gap: 10px; transition: background 0.1s; margin-bottom: 8px;
-}
-.btn-social:hover { background: #F6F7F8; }
-
-.auth-switch { font-size: 14px; text-align: center; margin-top: 16px; color: #1c1c1c; }
+.auth-switch { font-size: 14px; text-align: center; margin-top: 28px; color: #1c1c1c; }
 .auth-switch-link { color: #FF4500; font-weight: 700; text-decoration: none; }
 .auth-switch-link:hover { text-decoration: underline; }
 </style>

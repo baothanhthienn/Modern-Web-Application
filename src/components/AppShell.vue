@@ -27,47 +27,32 @@
         />
       </div>
 
-      <!-- Right nav actions -->
       <div class="navbar-actions">
-
-        <!-- Notifications button → links to /notifications -->
+        <router-link to="/chat" class="nav-action-label" title="Open chat">
+          <i class="fa-regular fa-comment-dots"></i>
+          <span class="action-label">Chat</span>
+        </router-link>
         <router-link to="/notifications" class="nav-icon-btn" title="Notifications">
-          <i class="fa-solid fa-bell"></i>
+          <i class="fa-regular fa-bell"></i>
           <span class="badge-dot" v-if="hasNotifications"></span>
         </router-link>
 
-        <!-- 
-          INBOX BUTTON → links to /inbox
-          This is one of the two key pages you're building.
-          The badge shows unread message count.
-        -->
-        <router-link to="/inbox" class="nav-icon-btn" title="Messages / Inbox">
-          <i class="fa-solid fa-envelope"></i>
-          <span class="badge-count" v-if="unreadCount > 0">{{ unreadCount }}</span>
+        <router-link :to="currentUser ? '/' : '/register'" class="create-post-btn">
+          <i class="fa-solid fa-plus"></i>
+          <span>Create</span>
         </router-link>
 
-        <!--
-          CHAT BUTTON → links to /chat
-          Opens the real-time chat room list.
-          This is your other key page.
-        -->
-        <router-link to="/chat" class="nav-icon-btn chat-btn" title="Live Chat">
-          <i class="fa-solid fa-comments"></i>
-          <span class="chat-live-dot"></span>
-        </router-link>
-
-        <!-- Avatar / Profile -->
-        <router-link to="/profile" class="nav-avatar" title="Profile">
-          <div class="avatar-circle">
-            <i class="fa-solid fa-user"></i>
-          </div>
-        </router-link>
-
-        <!-- Login / Register for guests -->
-        <div class="nav-auth-btns">
-          <router-link to="/login" class="btn-login">Log In</router-link>
-          <router-link to="/register" class="btn-register">Sign Up</router-link>
+        <div v-if="!currentUser" class="nav-auth-btns">
+          <router-link to="/login" class="btn-register">Log In</router-link>
         </div>
+        <div v-else class="signed-in-menu">
+          <span class="signed-in-name">u/{{ currentUser.username }}</span>
+          <button class="btn-logout" @click="signOut">Log out</button>
+        </div>
+        <button v-if="!currentUser" class="profile-menu-btn" title="Open account menu">
+          <i class="fa-regular fa-user"></i>
+          <i class="fa-solid fa-chevron-down"></i>
+        </button>
       </div>
     </nav>
 
@@ -77,30 +62,29 @@
     <aside class="sidebar-left">
       <div class="sidebar-nav">
 
-        <router-link to="/" class="sidebar-item" active-class="sidebar-item--active">
+        <router-link to="/" class="sidebar-item" :class="{ 'sidebar-item--active': isHomeSelected }">
           <div class="nav-item-inner">
             <i class="fa-solid fa-house"></i>
             <span>Home</span>
           </div>
         </router-link>
 
-        <router-link to="/search?sort=popular" class="sidebar-item" active-class="sidebar-item--active">
+        <router-link to="/?feed=popular" class="sidebar-item" :class="{ 'sidebar-item--active': route.query.feed === 'popular' }">
           <div class="nav-item-inner">
             <i class="fa-solid fa-fire"></i>
             <span>Popular</span>
           </div>
         </router-link>
 
-        <router-link to="/search" class="sidebar-item" active-class="sidebar-item--active">
+        <router-link to="/?feed=explore" class="sidebar-item" :class="{ 'sidebar-item--active': route.query.feed === 'explore' }">
           <div class="nav-item-inner">
             <i class="fa-solid fa-compass"></i>
-            <span>Topics</span>
+            <span>Explore</span>
           </div>
         </router-link>
 
-        <!-- ── FEATURE SHORTCUTS ── -->
         <div class="sidebar-divider"></div>
-        <div class="sidebar-section-label">Live Features</div>
+        <div class="sidebar-section-label">Custom Feeds</div>
 
         <!--
           CHAT shortcut — links to the Chat page.
@@ -109,7 +93,7 @@
         <router-link to="/chat" class="sidebar-item" active-class="sidebar-item--active">
           <div class="nav-item-inner sidebar-item-chat">
             <i class="fa-solid fa-comments"></i>
-            <span>Live Chat</span>
+            <span>Community Chats</span>
             <span class="live-badge">LIVE</span>
           </div>
         </router-link>
@@ -126,14 +110,14 @@
         </router-link>
 
         <div class="sidebar-divider"></div>
-        <div class="sidebar-section-label">Subscribed Communities</div>
+        <div class="sidebar-section-label">Communities</div>
 
         <router-link
           v-for="community in communities"
           :key="community.name"
-          :to="`/r/${community.name}`"
+          :to="{ path: '/', query: { r: community.name } }"
           class="sidebar-item sidebar-item--community"
-          active-class="sidebar-item--active"
+          :class="{ 'sidebar-item--active': route.query.r === community.name }"
         >
           <div class="nav-item-inner">
             <div class="community-dot" :style="{ background: community.color }"></div>
@@ -144,7 +128,7 @@
 
       <!-- Bottom CTA -->
       <div class="sidebar-footer">
-        <button class="btn-create-community" @click="$router.push('/r/new')">
+        <button class="btn-create-community" @click="$router.push('/register')">
           <i class="fa-solid fa-plus"></i> Create Community
         </button>
       </div>
@@ -161,16 +145,36 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { clearStoredAuth, getStoredUser, logout, restoreAuthSession } from '../services/auth.js'
 
 const router = useRouter()
+const route = useRoute()
+const isHomeSelected = computed(() => !route.query.feed && !route.query.r)
+const currentUser = ref(getStoredUser())
+
+async function signOut() {
+  await logout().catch(() => {})
+  currentUser.value = null
+  router.push('/')
+}
+
+onMounted(async () => {
+  if (!currentUser.value) return
+  try {
+    currentUser.value = await restoreAuthSession()
+  } catch {
+    clearStoredAuth()
+    currentUser.value = null
+  }
+})
 
 // Search
 const searchQuery = ref('')
 function goSearch() {
   if (searchQuery.value.trim()) {
-    router.push({ name: 'search', query: { q: searchQuery.value } })
+    router.push({ path: '/', query: { q: searchQuery.value } })
     searchQuery.value = ''
   }
 }
@@ -507,5 +511,184 @@ const communities = ref([
   .logo-text { display: none; }
   .nav-auth-btns { display: none; }
   .navbar-search { max-width: 200px; }
+}
+
+/* Current Reddit shell: quiet separators, inset search, compact actions. */
+.app-shell { background: var(--reddit-bg); }
+.navbar-top {
+  height: 56px;
+  padding: 0 16px;
+  gap: 20px;
+  border-bottom-color: var(--reddit-border-soft);
+}
+.logo-svg { width: 34px; height: 34px; }
+.logo-text {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.045em;
+}
+.navbar-search {
+  max-width: 560px;
+  margin: 0 auto;
+}
+.search-icon { left: 16px; font-size: 16px; }
+.search-input {
+  height: 40px;
+  padding: 0 20px 0 44px;
+  border: 1px solid transparent;
+  border-radius: 24px;
+  background: var(--reddit-surface-inset);
+  color: var(--reddit-text);
+  font-size: 14px;
+}
+.search-input:hover { background: #eef1f2; }
+.search-input:focus {
+  border-color: var(--reddit-blue);
+  box-shadow: 0 0 0 3px var(--reddit-focus);
+}
+.navbar-actions { gap: 4px; }
+.nav-icon-btn,
+.nav-action-label,
+.create-post-btn,
+.profile-menu-btn {
+  height: 40px;
+  border-radius: 22px;
+  color: var(--reddit-text);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 120ms ease;
+}
+.nav-icon-btn { width: 40px; font-size: 18px; }
+.nav-action-label,
+.create-post-btn {
+  padding: 0 14px;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.nav-action-label:hover,
+.create-post-btn:hover,
+.profile-menu-btn:hover,
+.nav-icon-btn:hover { background: var(--reddit-surface-inset); color: var(--reddit-text); }
+.badge-dot {
+  top: 8px;
+  right: 9px;
+  border-color: var(--reddit-white);
+}
+.btn-register {
+  display: inline-flex;
+  height: 40px;
+  align-items: center;
+  padding: 0 22px;
+  border: 0;
+  font-size: 14px;
+}
+.profile-menu-btn {
+  width: 48px;
+  gap: 7px;
+  font-size: 15px;
+}
+.profile-menu-btn .fa-chevron-down {
+  font-size: 9px;
+  color: var(--reddit-text-secondary);
+}
+.signed-in-menu {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 10px;
+}
+.signed-in-name {
+  max-width: 136px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--reddit-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.btn-logout {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 20px;
+  border: 1px solid var(--reddit-border-emphasis);
+  color: var(--reddit-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.btn-logout:hover { background: var(--reddit-surface-inset); }
+.sidebar-left {
+  top: 56px;
+  width: 272px;
+  background: var(--reddit-bg);
+  border-right-color: var(--reddit-border-soft);
+  padding: 8px;
+}
+.sidebar-nav { padding: 0; }
+.sidebar-item { padding: 0; }
+.nav-item-inner {
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 22px;
+  font-size: 14px;
+  color: var(--reddit-text);
+}
+.nav-item-inner i { color: var(--reddit-text); }
+.sidebar-item:hover .nav-item-inner { background: var(--reddit-surface-inset); }
+.sidebar-item--active .nav-item-inner {
+  background: var(--reddit-surface-inset);
+  color: var(--reddit-text);
+  font-weight: 700;
+}
+.sidebar-item--active .nav-item-inner i { color: var(--reddit-text); }
+.sidebar-divider {
+  background: var(--reddit-border-soft);
+  margin: 12px 8px;
+}
+.sidebar-section-label {
+  padding: 4px 16px 8px;
+  color: var(--reddit-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.community-dot { width: 24px; height: 24px; }
+.live-badge {
+  border-radius: 16px;
+  background: rgba(70, 167, 88, 0.14);
+  color: #26743a;
+  padding: 2px 7px;
+}
+.unread-badge {
+  background: var(--reddit-orange);
+  font-size: 11px;
+}
+.sidebar-footer {
+  padding: 12px 8px 4px;
+  border-top-color: var(--reddit-border-soft);
+}
+.btn-create-community {
+  height: 40px;
+  background: transparent;
+  border: 1px solid var(--reddit-border-emphasis);
+  color: var(--reddit-text);
+  font-weight: 600;
+}
+.btn-create-community:hover { background: var(--reddit-surface-inset); }
+.page-content {
+  margin-left: 272px;
+  padding-top: 56px;
+}
+@media (max-width: 1100px) {
+  .sidebar-left { display: none; }
+  .page-content { margin-left: 0; }
+}
+@media (max-width: 700px) {
+  .navbar-top { gap: 8px; padding: 0 8px; }
+  .navbar-search { min-width: 0; }
+  .action-label, .create-post-btn span { display: none; }
+  .nav-action-label, .create-post-btn { width: 40px; padding: 0; }
+  .signed-in-name { display: none; }
 }
 </style>

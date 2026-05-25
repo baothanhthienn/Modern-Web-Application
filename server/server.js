@@ -3,21 +3,99 @@ import http from 'http'
 import cors from 'cors'
 import { Server } from 'socket.io'
 import { closeDatabase, pool, verifyDatabaseConnection } from './db.js'
+import {
+  bearerToken,
+  hashPassword,
+  hashSessionToken,
+  newSession,
+  normalizeEmail,
+  normalizeUsername,
+  validateRegistration,
+  verifyPassword,
+} from './auth.js'
 
 const app = express()
 const server = http.createServer(app)
+const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'DELETE'],
+    credentials: true,
   },
 })
 
-app.use(cors())
+app.use(cors({
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}))
 app.use(express.json())
 
 const roomPresence = new Map()
 const socketUsers = new Map()
+
+function publicUser(user) {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    joinDate: new Date(Number(user.created_at)).toISOString(),
+  }
+}
+
+async function issueSession(userId) {
+  const session = newSession()
+  const createdAt = Date.now()
+  await pool.execute(
+    `INSERT INTO auth_sessions (user_id, token_hash, created_at, expires_at)
+     VALUES (?, ?, ?, ?)`,
+    [userId, session.tokenHash, createdAt, session.expiresAt]
+  )
+  return session.token
+}
+
+function cookieToken(header) {
+  const sessionCookie = String(header || '')
+    .split(';')
+    .map(value => value.trim())
+    .find(value => value.startsWith('reddit_session='))
+  return sessionCookie?.slice('reddit_session='.length) || null
+}
+
+function requestSessionToken(req) {
+  return cookieToken(req.headers.cookie) || bearerToken(req.headers.authorization)
+}
+
+function setSessionCookie(res, token) {
+  const maxAgeSeconds = 60 * 60 * 24 * 30
+  const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+  res.setHeader(
+    'Set-Cookie',
+    `reddit_session=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}${secureFlag}`
+  )
+}
+
+function clearSessionCookie(res) {
+  const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : ''
+  res.setHeader('Set-Cookie', `reddit_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secureFlag}`)
+}
+
+async function findAuthenticatedSession(req) {
+  const token = requestSessionToken(req)
+  if (!token) return null
+
+  const [rows] = await pool.execute(
+    `SELECT u.id, u.username, u.email, u.created_at
+     FROM auth_sessions s
+     JOIN users u ON u.id = s.user_id
+     WHERE s.token_hash = ? AND s.expires_at > ?
+     LIMIT 1`,
+    [hashSessionToken(token), Date.now()]
+  )
+  return rows[0] || null
+}
 
 // Builds the emoji reaction object used by the Vue components.
 async function buildReactionsMap(messageId) {
@@ -144,6 +222,93 @@ app.get('/api/health', async (req, res) => {
     console.error('[http] GET /api/health failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
+})
+
+app.post('/api/auth/register', async (req, res) => {
+  const email = normalizeEmail(req.body?.email)
+  const username = normalizeUsername(req.body?.username)
+  const password = String(req.body?.password || '')
+  const validationError = validateRegistration({ email, username, password })
+
+  if (validationError) {
+    return res.status(400).json({ success: false, error: validationError })
+  }
+
+  try {
+    const passwordHash = await hashPassword(password)
+    const createdAt = Date.now()
+    const [result] = await pool.execute(
+      `INSERT INTO users (username, email, password_hash, created_at)
+       VALUES (?, ?, ?, ?)`,
+      [username, email, passwordHash, createdAt]
+    )
+    const user = { id: result.insertId, username, email, created_at: createdAt }
+    const sessionToken = await issueSession(user.id)
+    setSessionCookie(res, sessionToken)
+    res.status(201).json({ success: true, user: publicUser(user) })
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') {
+      return res.status(409).json({ success: false, error: 'That username or email is already registered.' })
+    }
+    console.error('[http] POST /api/auth/register failed', error.message)
+    res.status(500).json({ success: false, error: 'Unable to create your account right now.' })
+  }
+})
+
+app.post('/api/auth/login', async (req, res) => {
+  const identifier = String(req.body?.identifier || '').trim()
+  const password = String(req.body?.password || '')
+  if (!identifier || !password) {
+    return res.status(400).json({ success: false, error: 'Enter your username or email and password.' })
+  }
+
+  try {
+    const [rows] = await pool.execute(
+      `SELECT id, username, email, password_hash, created_at
+       FROM users
+       WHERE username = ? OR email = ?
+       LIMIT 1`,
+      [identifier, normalizeEmail(identifier)]
+    )
+    const user = rows[0]
+    if (!user || !(await verifyPassword(password, user.password_hash))) {
+      return res.status(401).json({ success: false, error: 'Invalid username, email, or password.' })
+    }
+
+    const sessionToken = await issueSession(user.id)
+    setSessionCookie(res, sessionToken)
+    res.json({ success: true, user: publicUser(user) })
+  } catch (error) {
+    console.error('[http] POST /api/auth/login failed', error.message)
+    res.status(500).json({ success: false, error: 'Unable to log in right now.' })
+  }
+})
+
+app.get('/api/auth/session', async (req, res) => {
+  try {
+    const user = await findAuthenticatedSession(req)
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Session expired or invalid.' })
+    }
+    res.json({ success: true, user: publicUser(user) })
+  } catch (error) {
+    console.error('[http] GET /api/auth/session failed', error.message)
+    res.status(500).json({ success: false, error: 'Unable to verify your session right now.' })
+  }
+})
+
+app.delete('/api/auth/session', async (req, res) => {
+  const token = requestSessionToken(req)
+  if (token) {
+    try {
+      await pool.execute('DELETE FROM auth_sessions WHERE token_hash = ?', [hashSessionToken(token)])
+    } catch (error) {
+      console.error('[http] DELETE /api/auth/session failed', error.message)
+      return res.status(500).json({ success: false, error: 'Unable to log out right now.' })
+    }
+  }
+  clearSessionCookie(res)
+  res.json({ success: true })
 })
 
 app.get('/api/messages/:roomId', async (req, res) => {

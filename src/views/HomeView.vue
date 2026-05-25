@@ -4,21 +4,6 @@
 
       <div class="feed-column">
 
-        <!-- Create Post Input Bar -->
-        <div class="create-post-bar">
-          <router-link to="/profile" class="create-post-avatar"></router-link>
-          <router-link to="/post/create" class="create-post-input">
-            Create Post
-          </router-link>
-          <button class="create-post-icon-btn" title="Image/Video">
-            <i class="fa-regular fa-image"></i>
-          </button>
-          <button class="create-post-icon-btn" title="Link">
-            <i class="fa-solid fa-link"></i>
-          </button>
-        </div>
-
-        <!-- Sort Bar -->
         <div class="sort-bar">
           <button
             v-for="sort in sortOptions"
@@ -29,8 +14,11 @@
           >
             <i :class="sort.icon"></i> {{ sort.label }}
           </button>
-          <button class="sort-btn sort-btn--more">
-            <i class="fa-solid fa-ellipsis"></i>
+          <span class="sort-divider"></span>
+          <button class="sort-btn sort-dropdown">Everywhere <i class="fa-solid fa-chevron-down"></i></button>
+          <button class="sort-view-btn" title="Change post view">
+            <i class="fa-solid fa-table-cells-large"></i>
+            <i class="fa-solid fa-chevron-down"></i>
           </button>
         </div>
 
@@ -41,28 +29,6 @@
           class="post-card"
           @click="$router.push(`/post/${post.id}`)"
         >
-          <!-- Vote column -->
-          <div class="vote-col">
-            <button
-              class="vote-btn"
-              :class="{ 'vote-btn--up': post.userVote === 1 }"
-              @click.stop="vote(post, 1)"
-            >
-              <i class="fa-solid fa-arrow-up"></i>
-            </button>
-            <span class="vote-count" :class="{ 'vote-count--up': post.userVote === 1, 'vote-count--down': post.userVote === -1 }">
-              {{ formatCount(post.votes) }}
-            </span>
-            <button
-              class="vote-btn"
-              :class="{ 'vote-btn--down': post.userVote === -1 }"
-              @click.stop="vote(post, -1)"
-            >
-              <i class="fa-solid fa-arrow-down"></i>
-            </button>
-          </div>
-
-          <!-- Content column -->
           <div class="post-content">
             <!-- Meta header -->
             <div class="post-meta">
@@ -106,9 +72,30 @@
 
             <!-- Footer actions -->
             <div class="post-actions">
+              <div class="vote-pill">
+                <button
+                  class="vote-btn"
+                  :class="{ 'vote-btn--up': post.userVote === 1 }"
+                  @click.stop="vote(post, 1)"
+                  aria-label="Upvote"
+                >
+                  <i class="fa-solid fa-arrow-up"></i>
+                </button>
+                <span class="vote-count" :class="{ 'vote-count--up': post.userVote === 1, 'vote-count--down': post.userVote === -1 }">
+                  {{ formatCount(post.votes) }}
+                </span>
+                <button
+                  class="vote-btn"
+                  :class="{ 'vote-btn--down': post.userVote === -1 }"
+                  @click.stop="vote(post, -1)"
+                  aria-label="Downvote"
+                >
+                  <i class="fa-solid fa-arrow-down"></i>
+                </button>
+              </div>
               <button class="action-btn" @click.stop="$router.push(`/post/${post.id}`)">
                 <i class="fa-regular fa-message"></i>
-                {{ formatCount(post.comments) }} Comments
+                {{ formatCount(post.comments) }}
               </button>
               <button class="action-btn" @click.stop>
                 <i class="fa-solid fa-share"></i> Share
@@ -149,52 +136,8 @@
            ============================================= -->
       <aside class="right-sidebar">
 
-        <!-- Reddit Premium -->
         <div class="sidebar-card">
-          <div class="premium-header">
-            <i class="fa-solid fa-shield-halved premium-icon"></i>
-            <div>
-              <div class="premium-title">Reddit Premium</div>
-              <div class="premium-sub">The best Reddit experience, with monthly Coins</div>
-            </div>
-          </div>
-          <button class="btn-premium">Try Now</button>
-        </div>
-
-        <!--
-          LIVE CHAT CARD
-          Promotes your Chat feature right in the sidebar.
-        -->
-        <div class="sidebar-card sidebar-card--chat">
-          <div class="chat-card-header">
-            <span class="chat-live-indicator">
-              <span class="live-dot"></span> LIVE
-            </span>
-            <strong>Community Chat</strong>
-          </div>
-          <p class="chat-card-desc">
-            Join live chat rooms, react to messages with emoji, and see who's typing in real time.
-          </p>
-          <div class="chat-rooms-preview">
-            <div
-              v-for="room in chatRooms"
-              :key="room.id"
-              class="chat-room-row"
-              @click="$router.push(`/chat/${room.id}`)"
-            >
-              <div class="room-dot" :style="{ background: room.color }"></div>
-              <span class="room-name">{{ room.name }}</span>
-              <span class="room-count">{{ room.online }} online</span>
-            </div>
-          </div>
-          <router-link to="/chat" class="btn-join-chat">
-            <i class="fa-solid fa-comments"></i> Open Chat
-          </router-link>
-        </div>
-
-        <!-- Trending Communities -->
-        <div class="sidebar-card">
-          <div class="sidebar-card-title">Trending Communities</div>
+          <div class="sidebar-card-title">Popular Communities</div>
           <div class="trending-list">
             <div
               v-for="(community, index) in trending"
@@ -204,7 +147,7 @@
               <i class="fa-solid fa-arrow-trend-up trend-icon"></i>
               <div class="community-dot" :style="{ background: community.color }"></div>
               <div class="trending-info">
-                <router-link :to="`/r/${community.name}`" class="trending-name">
+                <router-link :to="{ path: '/', query: { r: community.name } }" class="trending-name">
                   r/{{ community.name }}
                 </router-link>
                 <div class="trending-members">{{ community.members }} members</div>
@@ -212,41 +155,32 @@
               <button class="btn-join" @click.stop>Join</button>
             </div>
           </div>
-          <router-link to="/search" class="sidebar-view-more">View All ›</router-link>
+          <button class="sidebar-view-more">See more</button>
         </div>
 
-        <!-- Direct Messages quick-access -->
-        <div class="sidebar-card sidebar-card--inbox">
-          <div class="sidebar-card-title">
-            <i class="fa-solid fa-inbox"></i> Recent Messages
-            <router-link to="/inbox" class="inbox-link">View All</router-link>
+        <div class="sidebar-card sidebar-card--chat">
+          <div class="chat-card-header">
+            <strong>Community chats</strong>
+            <span class="chat-live-indicator"><span class="live-dot"></span> LIVE</span>
           </div>
-          <div class="inbox-previews">
-            <div
-              v-for="msg in recentMessages"
-              :key="msg.id"
-              class="inbox-preview-row"
-              @click="$router.push('/inbox')"
-            >
-              <div class="inbox-avatar" :style="{ background: msg.color }">
-                {{ msg.from[0].toUpperCase() }}
-              </div>
-              <div class="inbox-preview-content">
-                <div class="inbox-from">{{ msg.from }}</div>
-                <div class="inbox-preview-text">{{ msg.preview }}</div>
-              </div>
-              <span v-if="msg.unread" class="inbox-unread-dot"></span>
+          <p class="chat-card-desc">Real-time conversations happening now.</p>
+          <div class="chat-rooms-preview">
+            <div v-for="room in chatRooms" :key="room.id" class="chat-room-row" @click="$router.push(`/chat/${room.id}`)">
+              <div class="room-dot" :style="{ background: room.color }"></div>
+              <span class="room-name">{{ room.name }}</span>
+              <span class="room-count">{{ room.online }} online</span>
             </div>
           </div>
-          <router-link to="/inbox" class="btn-go-inbox">
-            <i class="fa-solid fa-envelope"></i> Open Inbox
+          <router-link to="/chat" class="btn-join-chat">
+            View chats
           </router-link>
         </div>
 
         <!-- Footer links -->
         <div class="sidebar-footer-links">
-          <router-link to="/about">Help</router-link>
-          <router-link to="/about">About</router-link>
+          <span>Reddit Rules</span>
+          <span>Privacy Policy</span>
+          <span>User Agreement</span>
           <span>Reddit Inc © 2026</span>
         </div>
 
@@ -378,12 +312,6 @@ const trending = ref([
   { name: 'datascience',    color: '#EC4899', members: '1.9M' },
 ])
 
-// ── Recent DMs for sidebar inbox preview ──
-const recentMessages = ref([
-  { id: 1, from: 'alice_dev',   preview: 'Hey, did you see the new post?', unread: true,  color: '#6366F1' },
-  { id: 2, from: 'bob_coder',   preview: 'Thanks for the help earlier!',   unread: true,  color: '#F59E0B' },
-  { id: 3, from: 'charlie_99',  preview: 'Lol same honestly 😂',           unread: false, color: '#10B981' },
-])
 </script>
 
 <style scoped>
@@ -911,5 +839,250 @@ const recentMessages = ref([
 @media (max-width: 640px) {
   .home-layout { padding: 12px; }
   .post-title { font-size: 15px; }
+}
+
+/* Reddit's current feed keeps the conversation primary and the chrome quiet. */
+.home-layout {
+  width: min(1120px, 100%);
+  max-width: none;
+  padding: 20px 24px 48px;
+  gap: 44px;
+  justify-content: center;
+}
+.feed-column {
+  width: min(100%, 756px);
+  max-width: 756px;
+  gap: 0;
+}
+.sort-bar {
+  height: 48px;
+  margin-bottom: 8px;
+  padding: 0 8px;
+  gap: 2px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.sort-btn {
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 18px;
+  color: var(--reddit-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.sort-btn i { font-size: 13px; }
+.sort-btn:hover { background: var(--reddit-surface-inset); }
+.sort-btn--active {
+  background: var(--reddit-surface-inset);
+  color: var(--reddit-text);
+}
+.sort-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 8px;
+  background: var(--reddit-border);
+}
+.sort-dropdown { font-weight: 500; }
+.sort-view-btn {
+  height: 36px;
+  min-width: 48px;
+  margin-left: auto;
+  border-radius: 18px;
+  color: var(--reddit-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.sort-view-btn:hover { background: var(--reddit-surface-inset); }
+.sort-view-btn .fa-chevron-down,
+.sort-dropdown .fa-chevron-down { font-size: 9px; }
+.post-card {
+  display: block;
+  padding: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--reddit-border-soft);
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.post-card:hover {
+  border-color: var(--reddit-border-soft);
+  background: var(--reddit-surface-inset);
+  border-radius: 16px;
+}
+.post-content {
+  padding: 12px 16px 10px;
+}
+.post-meta {
+  margin-bottom: 8px;
+  gap: 6px;
+  color: var(--reddit-text-meta);
+  font-size: 12px;
+}
+.post-meta .community-dot {
+  width: 24px;
+  height: 24px;
+}
+.post-community { color: var(--reddit-text); }
+.post-title {
+  margin: 0 0 10px;
+  color: var(--reddit-text);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+.post-text-preview {
+  margin-bottom: 10px;
+  color: var(--reddit-text-secondary);
+  font-size: 14px;
+  line-height: 1.48;
+  max-height: 88px;
+}
+.post-text-fade {
+  background: linear-gradient(to bottom, transparent, var(--reddit-white));
+}
+.post-card:hover .post-text-fade {
+  background: linear-gradient(to bottom, transparent, var(--reddit-surface-inset));
+}
+.post-image-wrap {
+  margin-bottom: 10px;
+  border-color: var(--reddit-border-soft);
+  border-radius: 16px;
+  background: var(--reddit-surface-inset);
+}
+.post-image { max-height: 520px; object-fit: cover; }
+.post-actions { gap: 8px; margin-top: 8px; }
+.vote-pill,
+.action-btn {
+  height: 32px;
+  border-radius: 18px;
+  background: var(--reddit-surface-inset);
+  color: var(--reddit-text-secondary);
+}
+.vote-pill {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+.vote-btn {
+  width: 34px;
+  height: 32px;
+  font-size: 14px;
+  color: var(--reddit-text-secondary);
+}
+.vote-btn:hover { background: rgba(255, 69, 0, 0.12); }
+.vote-count {
+  min-width: 31px;
+  color: var(--reddit-text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: center;
+}
+.action-btn {
+  padding: 0 13px;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.action-btn:hover { background: #e8ebed; }
+.action-btn--reaction { color: var(--reddit-text-secondary); font-size: 12px; }
+.action-btn--reaction:hover { background: #e8ebed; }
+.action-btn--more { margin-left: 0; width: 36px; padding: 0; justify-content: center; }
+.feed-loading { color: var(--reddit-text-muted); font-size: 18px; padding: 28px; }
+.right-sidebar {
+  width: 304px;
+  gap: 16px;
+  top: 76px;
+}
+.sidebar-card {
+  border: 0;
+  border-radius: 16px;
+  background: var(--reddit-surface-inset);
+  box-shadow: none;
+}
+.sidebar-card-title {
+  padding: 16px 16px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--reddit-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.trending-list { padding: 4px 8px; }
+.trending-item {
+  min-height: 56px;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+.trending-item:hover { background: rgba(15, 26, 28, 0.05); }
+.trend-icon { display: none; }
+.trending-item .community-dot { width: 36px; height: 36px; }
+.trending-name { font-size: 14px; font-weight: 600; }
+.trending-members { color: var(--reddit-text-meta); font-size: 12px; }
+.btn-join {
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid var(--reddit-border-emphasis);
+  color: var(--reddit-text);
+  font-weight: 600;
+}
+.btn-join:hover { background: rgba(15, 26, 28, 0.06); }
+.sidebar-view-more {
+  width: calc(100% - 24px);
+  margin: 4px 12px 12px;
+  padding: 10px;
+  border: 0;
+  border-radius: 20px;
+  color: var(--reddit-text);
+  text-align: left;
+  font-weight: 600;
+}
+.sidebar-view-more:hover { background: rgba(15, 26, 28, 0.06); }
+.sidebar-card--chat { border: 0; }
+.chat-card-header {
+  justify-content: space-between;
+  padding: 16px 16px 4px;
+}
+.chat-card-desc {
+  padding: 0 16px 10px;
+  color: var(--reddit-text-meta);
+}
+.chat-rooms-preview {
+  border-color: var(--reddit-border-soft);
+  padding: 4px 8px;
+}
+.chat-room-row {
+  border-radius: 10px;
+  padding: 9px 8px;
+}
+.chat-room-row:hover { background: rgba(15, 26, 28, 0.05); }
+.btn-join-chat {
+  margin: 10px 12px 12px;
+  background: transparent;
+  border: 1px solid var(--reddit-border-emphasis);
+  color: var(--reddit-text);
+  font-weight: 600;
+}
+.btn-join-chat:hover { background: rgba(15, 26, 28, 0.06); }
+.sidebar-footer-links {
+  gap: 12px;
+  padding: 4px 12px;
+  color: var(--reddit-text-meta);
+}
+@media (max-width: 1220px) {
+  .home-layout { gap: 24px; }
+}
+@media (max-width: 820px) {
+  .home-layout { padding: 8px 0 40px; }
+  .sort-bar { overflow-x: auto; }
+  .sort-btn { flex-shrink: 0; }
+  .post-content { padding: 12px 16px; }
 }
 </style>

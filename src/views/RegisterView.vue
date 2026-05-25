@@ -11,7 +11,7 @@
       </div>
 
       <h1 class="auth-title">Sign Up</h1>
-      <p class="auth-subtitle">By continuing, you agree to our User Agreement and Privacy Policy.</p>
+      <p class="auth-subtitle">Create an account to vote, post, and join conversations.</p>
 
       <!-- Error list (form-level) -->
       <div v-if="formErrors.length > 0" class="error-list">
@@ -26,7 +26,7 @@
         <div class="form-group" :class="{ 'form-group--error': errors.email }">
           <label class="form-label">Email</label>
           <input v-model="form.email" type="email" class="form-input"
-            placeholder="Enter your email" @blur="validateField('email')" />
+            placeholder="Enter your email" maxlength="191" @blur="validateField('email')" />
           <span v-if="errors.email" class="field-error">{{ errors.email }}</span>
         </div>
 
@@ -65,16 +65,6 @@
           <span v-if="errors.confirmPassword" class="field-error">{{ errors.confirmPassword }}</span>
         </div>
 
-        <!-- Terms checkbox -->
-        <div class="form-group form-group--check">
-          <label class="checkbox-label">
-            <input type="checkbox" v-model="form.acceptTerms" class="checkbox-input" />
-            I agree to the <a href="#" class="inline-link">User Agreement</a> and
-            <a href="#" class="inline-link">Privacy Policy</a>
-          </label>
-          <span v-if="errors.acceptTerms" class="field-error">{{ errors.acceptTerms }}</span>
-        </div>
-
         <button type="submit" class="btn-submit" :disabled="isLoading">
           <span v-if="isLoading"><i class="fa-solid fa-circle-notch fa-spin"></i> Creating account...</span>
           <span v-else">Sign Up</span>
@@ -92,14 +82,15 @@
 <script setup>
 import { ref, reactive, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { register, saveAuthSession } from '../services/auth.js'
 
 const router = useRouter()
 
 const form = reactive({
-  email: '', username: '', password: '', confirmPassword: '', acceptTerms: false
+  email: '', username: '', password: '', confirmPassword: ''
 })
 const errors = reactive({
-  email: '', username: '', password: '', confirmPassword: '', acceptTerms: ''
+  email: '', username: '', password: '', confirmPassword: ''
 })
 const formErrors = ref([])
 const isLoading = ref(false)
@@ -127,7 +118,7 @@ const PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/
 function validateField(field) {
   if (field === 'email') {
     if (!form.email) errors.email = 'Email is required'
-    else if (!EMAIL_RE.test(form.email)) errors.email = 'Enter a valid email address'
+    else if (!EMAIL_RE.test(form.email) || form.email.length > 191) errors.email = 'Enter a valid email address'
     else errors.email = ''
   }
   if (field === 'username') {
@@ -148,30 +139,23 @@ function validateField(field) {
 }
 
 async function handleSubmit() {
-  // Validate all fields
   ;['email', 'username', 'password', 'confirmPassword'].forEach(validateField)
-
-  if (!form.acceptTerms) {
-    errors.acceptTerms = 'You must accept the terms to continue'
-  } else {
-    errors.acceptTerms = ''
-  }
 
   const hasErrors = Object.values(errors).some(e => e !== '')
   if (hasErrors) return
 
   isLoading.value = true
+  formErrors.value = []
   try {
-    await new Promise(r => setTimeout(r, 1000))
-    localStorage.setItem('reddit_user', JSON.stringify({
-      username: form.username,
-      email: form.email,
-      loggedIn: true,
-      joinDate: new Date().toISOString(),
-    }))
+    const auth = await register({
+      username: form.username.trim(),
+      email: form.email.trim(),
+      password: form.password,
+    })
+    saveAuthSession(auth)
     router.push('/')
-  } catch {
-    formErrors.value = ['Registration failed. Please try again.']
+  } catch (error) {
+    formErrors.value = [error.message]
   } finally {
     isLoading.value = false
   }
@@ -190,7 +174,6 @@ async function handleSubmit() {
 .error-list ul { margin: 0; padding-left: 16px; font-size: 13px; color: #DC2626; }
 .auth-form { display: flex; flex-direction: column; gap: 14px; }
 .form-group { display: flex; flex-direction: column; gap: 4px; }
-.form-group--check { flex-direction: row; align-items: flex-start; flex-wrap: wrap; }
 .form-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
 .form-input { padding: 10px 12px; border: 1px solid #EDEFF1; border-radius: 4px; font-size: 14px; font-family: inherit; outline: none; background: #F6F7F8; transition: border-color 0.15s; }
 .form-input:focus { border-color: #0079D3; background: white; }
@@ -202,10 +185,6 @@ async function handleSubmit() {
 .toggle-pw { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 16px; color: #878A8C; background: none; border: none; cursor: pointer; }
 .pw-strength { height: 4px; background: #F3F4F6; border-radius: 2px; margin-top: 6px; overflow: hidden; }
 .pw-strength-bar { height: 100%; border-radius: 2px; transition: width 0.3s, background 0.3s; }
-.checkbox-label { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; cursor: pointer; }
-.checkbox-input { width: 16px; height: 16px; margin-top: 1px; accent-color: #FF4500; flex-shrink: 0; }
-.inline-link { color: #0079D3; text-decoration: none; }
-.inline-link:hover { text-decoration: underline; }
 .btn-submit { padding: 10px; background: #FF4500; color: white; font-weight: 700; font-size: 14px; border-radius: 20px; border: none; cursor: pointer; font-family: inherit; transition: background 0.1s; }
 .btn-submit:hover { background: #E03D00; }
 .btn-submit:disabled { background: #D1D5DB; cursor: not-allowed; }

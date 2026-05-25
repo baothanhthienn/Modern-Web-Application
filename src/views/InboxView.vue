@@ -230,6 +230,7 @@ import MessageList from '../components/chat/MessageList.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
 import TypingIndicator from '../components/chat/TypingIndicator.vue'
 import { useSocket } from '../composables/useSocket.js'
+import { getStoredUser } from '../services/auth.js'
 
 // ── Socket composable ──
 const {
@@ -246,8 +247,8 @@ const {
   onReactionUpdate,
 } = useSocket()
 
-// ── Current user ──
-const currentUser = ref('bao_dev')
+// Use the authenticated account when present; keep demo identity for guest preview mode.
+const currentUser = ref(getStoredUser()?.username || 'bao_dev')
 
 // ── State ──
 const activeConvId    = ref(null)

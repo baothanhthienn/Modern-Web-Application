@@ -163,6 +163,7 @@ import MessageList from '../components/chat/MessageList.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
 import TypingIndicator from '../components/chat/TypingIndicator.vue'
 import { useSocket } from '../composables/useSocket.js'
+import { getStoredUser } from '../services/auth.js'
 
 // ── Route param — /chat/:roomId? allows linking directly to a room ──
 const route = useRoute()
@@ -184,8 +185,8 @@ const {
   onReactionUpdate,
 } = useSocket()
 
-// ── Current logged-in user (replace with real auth store later) ──
-const currentUser = ref('bao_dev')
+// Use the authenticated account when present; keep demo identity for guest preview mode.
+const currentUser = ref(getStoredUser()?.username || 'bao_dev')
 
 // ── Messages for the active room ──
 const messages = ref([])

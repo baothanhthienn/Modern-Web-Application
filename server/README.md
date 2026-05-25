@@ -2,7 +2,13 @@
 
 ## Schema usage
 
-`server/schema.sql` defines the chat tables. The backend queries those tables, but it does not run the schema on every startup.
+`server/schema.sql` defines chat tables and the authentication tables:
+
+- `users` stores unique usernames/emails and `scrypt` password hashes.
+- `auth_sessions` stores hashed, expiring session tokens delivered to browsers as `HttpOnly` cookies.
+- `chat_messages` and `chat_reactions` store community chat activity.
+
+The backend queries those tables, but it does not run the schema on every startup.
 
 After configuring `server/.env`, initialize the database from the project root:
 
@@ -19,6 +25,22 @@ npm run db:seed
 ```
 
 The seed file uses fixed message IDs for its sample reactions, so do not apply it to a database that already contains real chat data.
+
+## Authentication endpoints
+
+The Vue login and registration screens call:
+
+```txt
+POST /api/auth/register
+POST /api/auth/login
+GET /api/auth/session
+DELETE /api/auth/session
+```
+
+Registration takes `email`, `username`, and `password`. Login takes `identifier`
+(either the username or email) and `password`. Successful authentication sets a
+30-day `HttpOnly` session cookie; plaintext passwords and raw session tokens are
+not stored in the database.
 
 ## Feenix phpMyAdmin
 
