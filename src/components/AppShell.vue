@@ -37,7 +37,7 @@
           <span class="badge-dot" v-if="hasNotifications"></span>
         </router-link>
 
-        <router-link :to="currentUser ? '/' : '/register'" class="create-post-btn">
+        <router-link :to="currentUser ? { path: '/', query: { compose: 'true' } } : '/register'" class="create-post-btn">
           <i class="fa-solid fa-plus"></i>
           <span>Create</span>
         </router-link>
@@ -46,7 +46,7 @@
           <router-link to="/login" class="btn-register">Log In</router-link>
         </div>
         <div v-else class="signed-in-menu">
-          <span class="signed-in-name">u/{{ currentUser.username }}</span>
+          <router-link :to="`/profile/${currentUser.username}`" class="signed-in-name">u/{{ currentUser.username }}</router-link>
           <button class="btn-logout" @click="signOut">Log out</button>
         </div>
         <button v-if="!currentUser" class="profile-menu-btn" title="Open account menu">
@@ -69,29 +69,28 @@
           </div>
         </router-link>
 
-        <router-link to="/?feed=popular" class="sidebar-item" :class="{ 'sidebar-item--active': route.query.feed === 'popular' }">
+        <router-link :to="{ path: '/', query: { sort: 'top' } }" class="sidebar-item" :class="{ 'sidebar-item--active': route.query.sort === 'top' }">
           <div class="nav-item-inner">
             <i class="fa-solid fa-fire"></i>
             <span>Popular</span>
           </div>
         </router-link>
 
-        <router-link to="/?feed=explore" class="sidebar-item" :class="{ 'sidebar-item--active': route.query.feed === 'explore' }">
+        <router-link :to="{ path: '/', query: { sort: 'new' } }" class="sidebar-item" :class="{ 'sidebar-item--active': route.query.sort === 'new' }">
           <div class="nav-item-inner">
             <i class="fa-solid fa-compass"></i>
-            <span>Explore</span>
+            <span>Latest</span>
           </div>
         </router-link>
 
         <div class="sidebar-divider"></div>
         <div class="sidebar-section-label">Custom Feeds</div>
 
-        <!-- Community conversations are stored in this browser. -->
         <router-link to="/chat" class="sidebar-item" active-class="sidebar-item--active">
           <div class="nav-item-inner sidebar-item-chat">
             <i class="fa-solid fa-comments"></i>
             <span>Community Chats</span>
-            <span class="live-badge">LOCAL</span>
+            <span class="live-badge">LIVE</span>
           </div>
         </router-link>
 
@@ -102,7 +101,6 @@
           <div class="nav-item-inner">
             <i class="fa-solid fa-inbox"></i>
             <span>Inbox</span>
-            <span class="unread-badge" v-if="unreadCount > 0">{{ unreadCount }}</span>
           </div>
         </router-link>
 
@@ -112,9 +110,9 @@
         <router-link
           v-for="community in communities"
           :key="community.name"
-          :to="{ path: '/', query: { r: community.name } }"
+          :to="`/chat/${community.name}`"
           class="sidebar-item sidebar-item--community"
-          :class="{ 'sidebar-item--active': route.query.r === community.name }"
+          :class="{ 'sidebar-item--active': route.path === `/chat/${community.name}` }"
         >
           <div class="nav-item-inner">
             <div class="community-dot" :style="{ background: community.color }"></div>
@@ -123,12 +121,6 @@
         </router-link>
       </div>
 
-      <!-- Bottom CTA -->
-      <div class="sidebar-footer">
-        <button class="btn-create-community" @click="$router.push('/register')">
-          <i class="fa-solid fa-plus"></i> Create Community
-        </button>
-      </div>
     </aside>
 
     <!-- =============================================
@@ -145,10 +137,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearStoredAuth, logout, restoreAuthSession, useAuthUser } from '../services/auth.js'
+import { getCommunities, getNotifications } from '../services/api.js'
 
 const router = useRouter()
 const route = useRoute()
-const isHomeSelected = computed(() => !route.query.feed && !route.query.r)
+const isHomeSelected = computed(() => route.path === '/' && !route.query.sort)
 const currentUser = useAuthUser()
 
 async function signOut() {
@@ -158,8 +151,10 @@ async function signOut() {
 }
 
 onMounted(async () => {
+  loadCommunities()
   try {
     currentUser.value = await restoreAuthSession()
+    loadNotifications()
   } catch {
     clearStoredAuth()
     currentUser.value = null
@@ -170,23 +165,31 @@ onMounted(async () => {
 const searchQuery = ref('')
 function goSearch() {
   if (searchQuery.value.trim()) {
-    router.push({ path: '/', query: { q: searchQuery.value } })
+    router.push({ path: '/search', query: { q: searchQuery.value.trim() } })
     searchQuery.value = ''
   }
 }
 
-// Mock notification/inbox state — replace with real API calls later
-const hasNotifications = ref(true)
-const unreadCount = ref(3)   // 3 unread DMs — drives the inbox badge
+const hasNotifications = ref(false)
+const communities = ref([])
 
-// Communities list for the sidebar
-const communities = ref([
-  { name: 'programming', color: '#3B82F6' },
-  { name: 'science',     color: '#22C55E' },
-  { name: 'technology',  color: '#A855F7' },
-  { name: 'worldnews',   color: '#EF4444' },
-  { name: 'gaming',      color: '#F59E0B' },
-])
+async function loadCommunities() {
+  try {
+    const data = await getCommunities()
+    communities.value = data.communities
+  } catch {
+    communities.value = []
+  }
+}
+
+async function loadNotifications() {
+  try {
+    const data = await getNotifications({ limit: 20 })
+    hasNotifications.value = data.notifications.some((notification) => !notification.read)
+  } catch {
+    hasNotifications.value = false
+  }
+}
 </script>
 
 <style scoped>
@@ -419,7 +422,7 @@ const communities = ref([
 }
 .sidebar-item--active .nav-item-inner i { color: var(--reddit-orange); }
 
-/* Local chat badge */
+/* Live chat badge */
 .sidebar-item-chat { position: relative; }
 .live-badge {
   margin-left: auto;
@@ -604,7 +607,9 @@ const communities = ref([
   color: var(--reddit-text-secondary);
   font-size: 13px;
   font-weight: 600;
+  text-decoration: none;
 }
+.signed-in-name:hover { text-decoration: underline; }
 .btn-logout {
   height: 36px;
   padding: 0 14px;

@@ -11,13 +11,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "preview:php": "php -S 127.0.0.1:8000 -t dist"
+    "preview": "vite preview"
   },
   "dependencies": {
     "bootstrap": "^5.3.8",
+    "socket.io-client": "^4.8.3",
     "vue": "^3.5.32",
-    "vue-advanced-cropper": "^2.8.9",
     "vue-router": "^5.0.7"
   },
   "devDependencies": {

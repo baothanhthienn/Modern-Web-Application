@@ -1,93 +1,99 @@
 # Modern Web Application
 
-This project is a Vue 3 and Vite application prepared for Mercury hosting.
-Database-backed registration and login run through small PHP endpoints supported
-by Mercury; the application does not require Node or Express in production.
+Vue 3 and Vite frontend for a Reddit-style application. Content, profiles,
+notifications, communities, and realtime chat are provided by the Express API
+described in `API.md`.
 
 ## Local Development
+
+Start the Express backend on `http://localhost:3000`, then run the frontend:
 
 ```bash
 npm install
 npm run dev
 ```
 
-`npm run dev` is useful for frontend work only. To test registration or login
-through PHP locally, build first and serve `dist/` with PHP:
-
-```bash
-npm run build
-npm run preview:php
-```
-
-The PHP endpoints require a reachable MariaDB database and valid configuration.
-
-## Database Authentication Setup
-
-1. Open `public/api/config.php` and set the FeeNIX MariaDB database, username,
-   and password before building for Mercury. The normal individual username is
-   `s` followed by your student number; use the database name shown in
-   phpMyAdmin for your account.
-2. Run the SQL in `public/api/schema.sql` through FeeNIX phpMyAdmin to create
-   the `users` table.
-3. Build and upload the generated `dist/` contents, including `dist/api/`.
-
-The Vue login and registration forms send HTTP requests to:
+In development, the frontend defaults to:
 
 ```text
-api/auth/register.php
-api/auth/login.php
-api/auth/session.php
-api/auth/logout.php
+http://localhost:3000/api
 ```
 
-Those PHP scripts connect to MariaDB using PDO and hold the authenticated
-session in PHP session storage. Database credentials are never included in the
-JavaScript bundle.
-
-## Authentication Diagnostics
-
-While troubleshooting, leave `'debug' => true` in `public/api/config.php`,
-rebuild, upload `dist/api/`, and open this URL on Mercury:
+To use another API host, copy `.env.example` to `.env.local` and update:
 
 ```text
-https://mercury.swin.edu.au/<subject>/s<student-id>/api/health.php
+VITE_API_BASE_URL=http://localhost:3000/api
 ```
 
-A working connection responds with JSON containing:
+## Backend API
+
+The frontend uses clean Express routes only, including:
+
+```text
+POST /api/auth/register
+POST /api/auth/login
+GET  /api/auth/session
+POST /api/auth/logout
+GET  /api/posts
+GET  /api/profiles/:username
+GET  /api/search
+GET  /api/communities
+GET  /api/notifications
+GET  /api/chats/communities/:name/messages
+GET  /api/chats/users/:username/messages
+```
+
+Every request includes browser credentials so the backend `HttpOnly` session
+cookie can be created and restored. The frontend stores only the returned user
+display state in `localStorage`; it does not access or store the session token.
+Realtime community and direct messages use Socket.IO on the same API origin.
+
+See [API.md](./API.md) for payloads, cookie behavior, error responses, and
+Railway configuration.
+
+## Backend Verification
+
+With the local backend running, open:
+
+```text
+http://localhost:3000/api/health
+```
+
+A functioning backend responds with JSON:
 
 ```json
 { "success": true, "database": "connected" }
 ```
 
-If the connection fails, the response includes the PDO error detail during
-debugging. Authentication requests also write messages using PHP `error_log()`;
-view these messages through the Mercury Apache error-log page. In your browser,
-the Vue authentication service logs request success or failure in Developer
-Tools Console.
+Before login, requesting the session endpoint should return an unauthenticated
+JSON response:
 
-After diagnosis, set `'debug' => false` and build/upload again so SQL connection
-details are not displayed to visitors.
+```text
+http://localhost:3000/api/auth/session
+```
 
-## Mercury Deployment
+## Production Build
 
-Build the site:
+Configure the deployed API URL before building:
+
+```text
+VITE_API_BASE_URL=https://<railway-api-domain>/api
+```
+
+Then build the static frontend:
 
 ```bash
 npm run build
 ```
 
-Upload the contents of `dist/` to the Mercury web directory. The application
-uses hash-based routing, so navigation works on a static web host without
-server-side URL rewriting. Vite is configured with relative asset paths so it
-also works when the site is hosted below a course or student subdirectory.
+The Express/Railway backend must allow credentialed CORS requests from the
+deployed frontend origin and configure its session cookie for the production
+origin arrangement.
 
-## Data Model
+## Data Boundaries
 
-Registration, login, and session restoration use Mercury PHP and MariaDB.
-Conversation messages, emoji reactions, notification changes, and
-recommendation activity remain browser-local demo features implemented with
-`localStorage`. There is no Express server, Socket.IO service, or real-time
-multi-user chat.
-
-Do not commit a real MariaDB password to a public repository. Configure
-`public/api/config.php` only for your Mercury deployment copy.
+The UI renders only backend-provided account and content data. Registration,
+login, session restoration, feeds, post actions, profiles, communities,
+notifications, and message history use the Express backend and PostgreSQL.
+Community and direct-message sends use the Socket.IO events documented in
+`API.md`.

@@ -1,412 +1,279 @@
 <template>
-  <!--
-    InboxView.vue
-    ============================================================
-    The Direct Messages Inbox page.
-
-    LAYOUT:
-      ┌──────────────────────────────────────────────────────┐
-      │  AppShell (Navbar + Left Sidebar)                     │
-      │  ┌──────────────────┬──────────────────────────────┐  │
-      │  │  Conversation    │  Active Conversation Panel   │  │
-      │  │  List (left)     │  ┌──────────────────────────┐│  │
-      │  │                  │  │  Header (user info)      ││  │
-      │  │  [alice_dev]  ●  │  ├──────────────────────────┤│  │
-      │  │  [bob_coder]     │  │  MessageList             ││  │
-      │  │  [charlie_99]    │  │  (same component as chat)││  │
-      │  │                  │  ├──────────────────────────┤│  │
-      │  │                  │  │  MessageInput            ││  │
-      │  │                  │  └──────────────────────────┘│  │
-      │  └──────────────────┴──────────────────────────────┘  │
-      └──────────────────────────────────────────────────────┘
-
-    The Inbox reuses the same MessageList, MessageInput,
-    ReactionPicker components as ChatView.
-    The only difference is that DM rooms use user-based IDs
-    (e.g. "dm:bao_dev:alice_dev") instead of community IDs.
-  -->
   <AppShell>
-    <div class="inbox-page">
-
-      <!-- ── Conversation list panel (left) ── -->
-      <aside class="conversation-panel">
-
-        <div class="inbox-header">
-          <div class="inbox-title">
-            <i class="fa-solid fa-inbox"></i>
-            <span>Inbox</span>
-            <span v-if="totalUnread > 0" class="total-unread-badge">{{ totalUnread }}</span>
-          </div>
-          <!-- New message button -->
-          <button class="btn-new-dm" @click="showNewDMModal = true" title="New message">
-            <i class="fa-solid fa-pen-to-square"></i>
+    <div class="inbox-page d-flex">
+      <aside class="contacts">
+        <header>
+          <h1><i class="fa-regular fa-envelope"></i> Messages</h1>
+          <p>Direct conversations</p>
+        </header>
+        <form class="find-person" @submit.prevent="findPeople">
+          <input v-model="search" minlength="2" placeholder="Find a username" />
+          <button :disabled="search.trim().length < 2"><i class="fa-solid fa-magnifying-glass"></i></button>
+        </form>
+        <p v-if="searchError" class="side-error">{{ searchError }}</p>
+        <div class="contact-list">
+          <button v-for="user in users" :key="user.username" :class="{ active: activeUsername === user.username }" @click="openConversation(user.username)">
+            <span>{{ avatarLetter(user.username) }}</span>
+            <strong>u/{{ user.username }}</strong>
           </button>
-        </div>
-
-        <!-- Filter tabs -->
-        <div class="inbox-tabs">
-          <button
-            v-for="tab in tabs"
-            :key="tab.value"
-            class="inbox-tab"
-            :class="{ 'inbox-tab--active': activeTab === tab.value }"
-            @click="activeTab = tab.value"
-          >
-            {{ tab.label }}
-            <span v-if="tab.count > 0" class="tab-count">{{ tab.count }}</span>
-          </button>
-        </div>
-
-        <!-- Search conversations -->
-        <div class="conversation-search-wrap">
-          <i class="fa-solid fa-magnifying-glass conv-search-icon"></i>
-          <input
-            v-model="convSearch"
-            type="text"
-            placeholder="Search messages..."
-            class="conv-search-input"
-          />
-        </div>
-
-        <!-- Conversation list -->
-        <div class="conversation-list">
-          <div
-            v-for="conv in filteredConversations"
-            :key="conv.id"
-            class="conversation-item"
-            :class="{
-              'conversation-item--active': activeConvId === conv.id,
-              'conversation-item--unread': conv.unread > 0,
-            }"
-            @click="selectConversation(conv)"
-          >
-            <!-- Avatar with online indicator -->
-            <div class="conv-avatar-wrap">
-              <div class="conv-avatar" :style="{ background: avatarColor(conv.with) }">
-                {{ conv.with[0].toUpperCase() }}
-              </div>
-              <span v-if="conv.online" class="conv-online-dot"></span>
-            </div>
-
-            <div class="conv-info">
-              <div class="conv-top">
-                <span class="conv-username">{{ conv.with }}</span>
-                <span class="conv-time">{{ formatTime(conv.lastTimestamp) }}</span>
-              </div>
-              <div class="conv-preview">
-                <!-- Show if it was our own message -->
-                <span v-if="conv.lastSender === currentUser" class="conv-you">You: </span>
-                {{ conv.lastMessage }}
-              </div>
-            </div>
-
-            <!-- Unread badge -->
-            <span v-if="conv.unread > 0" class="conv-unread-badge">{{ conv.unread }}</span>
-          </div>
-
-          <!-- Empty state for filtered list -->
-          <div v-if="filteredConversations.length === 0" class="no-conv-state">
-            <i class="fa-regular fa-comment-dots"></i>
-            <p>No conversations found</p>
-          </div>
+          <div v-if="searched && !users.length" class="empty-contact">No users found.</div>
         </div>
       </aside>
 
-      <!-- ── Active conversation panel (right) ── -->
-      <section class="dm-panel">
-
-        <!-- No conversation selected -->
-        <div v-if="!activeConv" class="no-conv-selected">
-          <i class="fa-regular fa-envelope no-conv-icon"></i>
-          <h3>Your Messages</h3>
-          <p>Select a conversation or start a new one.</p>
-          <button class="btn-start-dm" @click="showNewDMModal = true">
-            <i class="fa-solid fa-pen-to-square"></i> New Message
-          </button>
+      <section class="direct-panel d-flex flex-column">
+        <div v-if="!activeUsername" class="direct-empty">
+          <i class="fa-regular fa-paper-plane"></i>
+          <h2>Direct messages</h2>
+          <p>Search for a redditor to open an authorized conversation.</p>
         </div>
-
-        <!-- Active conversation -->
         <template v-else>
-
-          <!-- DM header -->
-          <header class="dm-header">
-            <div class="dm-header-left">
-              <div class="dm-avatar" :style="{ background: avatarColor(activeConv.with) }">
-                {{ activeConv.with[0].toUpperCase() }}
-              </div>
-              <div>
-                <div class="dm-username">{{ activeConv.with }}</div>
-                <div class="dm-status">
-                  <template v-if="activeConv.online">
-                    <span class="online-dot-sm"></span> Online now
-                  </template>
-                  <template v-else>
-                    Last seen {{ formatTime(activeConv.lastSeen) }}
-                  </template>
-                </div>
-              </div>
-            </div>
-
-            <!-- Header actions -->
-            <div class="dm-header-actions">
-              <button class="dm-action-btn" title="View profile" @click="$router.push(`/profile/${activeConv.with}`)">
-                <i class="fa-solid fa-user"></i>
-              </button>
-              <button class="dm-action-btn" title="More options">
-                <i class="fa-solid fa-ellipsis"></i>
-              </button>
-            </div>
+          <header class="direct-head d-flex align-items-center">
+            <span class="person-mark">{{ avatarLetter(activeUsername) }}</span>
+            <router-link :to="`/profile/${activeUsername}`">
+              <h2>u/{{ activeUsername }}</h2>
+              <p>View public profile</p>
+            </router-link>
+            <button v-if="profileViewer && !profileViewer.isFollowing" class="follow" @click="followUser">Follow</button>
           </header>
-
-          <!--
-            MessageList — same component as ChatView.
-            Reusing it here demonstrates component-based architecture.
-            Feature 1B (read receipts) and Feature 2 (reactions) work
-            identically in DMs.
-          -->
-          <MessageList
-            :messages="dmMessages"
-            :currentUser="currentUser"
-            @react="handleReaction"
-          />
-
-          <!-- Message input -->
-          <MessageInput
-            :disabled="false"
-            :roomName="activeConv.with"
-            @send="handleSend"
-          />
-
+          <div v-if="connectionError" class="message-error">{{ connectionError }}</div>
+          <div v-if="historyError" class="message-error">
+            <p>{{ historyError }}</p>
+            <small v-if="historyForbidden">Direct chat becomes available once both users follow each other.</small>
+          </div>
+          <div v-if="historyLoading" class="direct-empty">Loading messages...</div>
+          <template v-else-if="!historyError">
+            <MessageList :messages="messages" :current-user="currentUser" />
+            <MessageInput
+              :disabled="!canSend"
+              :disabled-message="messageDisabledReason"
+              :room-name="`u/${activeUsername}`"
+              @send="sendMessage"
+            />
+          </template>
         </template>
       </section>
-
-      <!-- ── New DM modal ── -->
-      <div v-if="showNewDMModal" class="modal-overlay" @click.self="showNewDMModal = false">
-        <div class="new-dm-modal">
-          <div class="modal-header">
-            <h3>New Message</h3>
-            <button class="modal-close" @click="showNewDMModal = false">
-              <i class="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-          <div class="modal-body">
-            <label class="modal-label">To:</label>
-            <input
-              v-model="newDMUsername"
-              type="text"
-              class="modal-input"
-              placeholder="Enter a username..."
-              @keyup.enter="startNewDM"
-            />
-          </div>
-          <div class="modal-footer">
-            <button class="btn-cancel" @click="showNewDMModal = false">Cancel</button>
-            <button
-              class="btn-start"
-              :disabled="!newDMUsername.trim()"
-              @click="startNewDM"
-            >
-              Start Conversation
-            </button>
-          </div>
-        </div>
-      </div>
-
     </div>
   </AppShell>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
-import MessageList from '../components/chat/MessageList.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
-import { useLocalMessages } from '../composables/useLocalMessages.js'
+import MessageList from '../components/chat/MessageList.vue'
+import { followProfile, getDirectMessages, getProfile, searchContent } from '../services/api.js'
+import { avatarLetter } from '../services/format.js'
+import { emitSocketEvent, getChatSocket } from '../services/realtime.js'
 import { useAuthUser } from '../services/auth.js'
 
-const {
-  loadMessages,
-  saveMessages,
-  addMessage,
-} = useLocalMessages()
-
-// Use the authenticated account when present; keep demo identity for guest preview mode.
-const authenticatedUser = useAuthUser()
-const currentUser = computed(() => authenticatedUser.value?.username || 'bao_dev')
-
-// ── State ──
-const activeConvId    = ref(null)
-const dmMessages      = ref([])
-const showNewDMModal  = ref(false)
-const newDMUsername   = ref('')
-const convSearch      = ref('')
-const activeTab       = ref('all')
-
-// Conversations are demo data; message changes persist in this browser.
-const conversations = ref([
-  {
-    id: 'dm:bao_dev:alice_dev',
-    with: 'alice_dev',
-    online: true,
-    lastMessage: 'Hey, did you see the new post about M4?',
-    lastSender: 'alice_dev',
-    lastTimestamp: Date.now() - 120000,
-    lastSeen: Date.now() - 3600000,
-    unread: 2,
-  },
-  {
-    id: 'dm:bao_dev:bob_coder',
-    with: 'bob_coder',
-    online: false,
-    lastMessage: 'Thanks for the help earlier!',
-    lastSender: 'bob_coder',
-    lastTimestamp: Date.now() - 3600000,
-    lastSeen: Date.now() - 7200000,
-    unread: 1,
-  },
-  {
-    id: 'dm:bao_dev:charlie_99',
-    with: 'charlie_99',
-    online: true,
-    lastMessage: 'Lol same honestly 😂',
-    lastSender: 'charlie_99',
-    lastTimestamp: Date.now() - 86400000,
-    lastSeen: Date.now() - 90000000,
-    unread: 0,
-  },
-  {
-    id: 'dm:bao_dev:dev_life',
-    with: 'dev_life',
-    online: false,
-    lastMessage: 'You: Python or TypeScript for the new project?',
-    lastSender: 'bao_dev',
-    lastTimestamp: Date.now() - 172800000,
-    lastSeen: Date.now() - 180000000,
-    unread: 0,
-  },
-])
-
-// ── Tabs ──
-const tabs = computed(() => [
-  { value: 'all',    label: 'All',    count: totalUnread.value },
-  { value: 'unread', label: 'Unread', count: conversations.value.filter(c => c.unread > 0).length },
-])
-
-// ── Total unread count ──
-const totalUnread = computed(() =>
-  conversations.value.reduce((sum, c) => sum + c.unread, 0)
-)
-
-// ── Filtered conversations ──
-const filteredConversations = computed(() => {
-  let list = conversations.value
-  if (activeTab.value === 'unread') {
-    list = list.filter(c => c.unread > 0)
-  }
-  if (convSearch.value.trim()) {
-    const q = convSearch.value.toLowerCase()
-    list = list.filter(c =>
-      c.with.toLowerCase().includes(q) ||
-      c.lastMessage.toLowerCase().includes(q)
-    )
-  }
-  // Sort by most recent first
-  return [...list].sort((a, b) => b.lastTimestamp - a.lastTimestamp)
+const route = useRoute()
+const router = useRouter()
+const authUser = useAuthUser()
+const currentUser = computed(() => authUser.value?.username || '')
+const search = ref('')
+const searched = ref(false)
+const users = ref([])
+const searchError = ref('')
+const activeUsername = ref('')
+const profileViewer = ref(null)
+const messages = ref([])
+const historyLoading = ref(false)
+const historyError = ref('')
+const historyForbidden = ref(false)
+const connected = ref(false)
+const directJoined = ref(false)
+const joinedUsername = ref('')
+const connectionError = ref('')
+let socket
+const canSend = computed(() => Boolean(activeUsername.value && connected.value && directJoined.value && !historyError.value))
+const messageDisabledReason = computed(() => {
+  if (!connected.value) return 'Connecting to direct messages...'
+  if (!directJoined.value) return 'Opening this direct conversation...'
+  return ''
 })
 
-// ── Active conversation ──
-const activeConv = computed(() =>
-  conversations.value.find(c => c.id === activeConvId.value) || null
-)
-
-// ── Select a conversation ──
-function selectConversation(conv) {
-  activeConvId.value = conv.id
-
-  // Clear unread badge
-  conv.unread = 0
-
-  dmMessages.value = loadMessages(conv.id)
-}
-
-// ── User actions ──
-function handleSend(text) {
-  dmMessages.value.push(addMessage(activeConvId.value, text, currentUser.value))
-
-  // Update conversation preview
-  if (activeConv.value) {
-    activeConv.value.lastMessage   = text
-    activeConv.value.lastTimestamp = Date.now()
-    activeConv.value.lastSender    = currentUser.value
+async function findPeople() {
+  searchError.value = ''
+  searched.value = true
+  try {
+    const data = await searchContent(search.value.trim())
+    users.value = data.users.filter((user) => user.username !== currentUser.value)
+  } catch (error) {
+    searchError.value = error.message
   }
-
 }
 
-function handleReaction(messageId, emoji) {
-  const msg = dmMessages.value.find(m => m.id === messageId)
-  if (msg) {
-    if (!msg.reactions) msg.reactions = {}
-    const users = msg.reactions[emoji] || []
-    if (users.includes(currentUser.value)) {
-      msg.reactions[emoji] = users.filter(u => u !== currentUser.value)
-      if (msg.reactions[emoji].length === 0) delete msg.reactions[emoji]
-    } else {
-      msg.reactions[emoji] = [...users, currentUser.value]
+async function openConversation(username) {
+  if (activeUsername.value && activeUsername.value !== username) await leaveActiveDirect()
+  activeUsername.value = username
+  directJoined.value = false
+  router.replace({ path: '/inbox', query: { with: username } })
+  historyError.value = ''
+  historyForbidden.value = false
+  historyLoading.value = true
+  try {
+    const [history, profile] = await Promise.all([getDirectMessages(username), getProfile(username)])
+    if (activeUsername.value !== username) return
+    messages.value = history.messages
+    profileViewer.value = profile.viewer
+    await joinActiveDirect()
+  } catch (error) {
+    if (activeUsername.value !== username) return
+    messages.value = []
+    historyError.value = error.message
+    historyForbidden.value = error.status === 403
+    try {
+      const profile = await getProfile(username)
+      profileViewer.value = profile.viewer
+    } catch {
+      profileViewer.value = null
     }
+  } finally {
+    if (activeUsername.value === username) historyLoading.value = false
   }
-  saveMessages(activeConvId.value, dmMessages.value)
 }
 
-// ── Start a new DM ──
-function startNewDM() {
-  const username = newDMUsername.value.trim()
-  if (!username) return
+async function followUser() {
+  try {
+    await followProfile(activeUsername.value)
+    profileViewer.value.isFollowing = true
+    await openConversation(activeUsername.value)
+  } catch (error) {
+    historyError.value = error.message
+  }
+}
 
-  const dmId = `dm:${currentUser.value}:${username}`
-  const existing = conversations.value.find(c => c.id === dmId)
-
-  if (existing) {
-    selectConversation(existing)
-  } else {
-    // Create new conversation entry
-    const newConv = {
-      id: dmId,
-      with: username,
-      online: false,
-      lastMessage: '',
-      lastSender: '',
-      lastTimestamp: Date.now(),
-      lastSeen: null,
-      unread: 0,
+async function joinActiveDirect() {
+  directJoined.value = false
+  if (!socket || !connected.value || !activeUsername.value || historyError.value) return
+  const username = activeUsername.value
+  if (joinedUsername.value && joinedUsername.value !== username) await leaveActiveDirect()
+  try {
+    const response = await emitSocketEvent(socket, 'direct:join', { username })
+    if (!response?.success) throw new Error(response?.error || 'Direct message authorization failed.')
+    if (activeUsername.value === username) {
+      joinedUsername.value = response.with || username
+      directJoined.value = true
     }
-    conversations.value.unshift(newConv)
-    selectConversation(newConv)
+  } catch (error) {
+    if (activeUsername.value === username) historyError.value = error.message
   }
-
-  showNewDMModal.value = false
-  newDMUsername.value = ''
 }
 
-// ── Helpers ──
-function formatTime(ts) {
-  if (!ts) return ''
-  const date = new Date(ts)
-  const now  = new Date()
-  const diff = now - date
-  if (diff < 60000)      return 'just now'
-  if (diff < 3600000)    return Math.floor(diff / 60000) + 'm'
-  if (diff < 86400000)   return Math.floor(diff / 3600000) + 'h'
-  if (diff < 604800000)  return Math.floor(diff / 86400000) + 'd'
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-function avatarColor(username) {
-  const colors = ['#6366F1', '#F59E0B', '#10B981', '#EF4444', '#A855F7', '#3B82F6', '#EC4899']
-  let hash = 0
-  for (let i = 0; i < username.length; i++) {
-    hash = username.charCodeAt(i) + ((hash << 5) - hash)
+async function leaveActiveDirect() {
+  const username = joinedUsername.value
+  joinedUsername.value = ''
+  directJoined.value = false
+  if (!username || !socket?.connected) return
+  try {
+    const response = await emitSocketEvent(socket, 'direct:leave', { username })
+    if (!response?.success) throw new Error(response?.error || 'Could not leave direct conversation.')
+  } catch (error) {
+    historyError.value = error.message
   }
-  return colors[Math.abs(hash) % colors.length]
 }
 
+async function sendMessage(body) {
+  if (!canSend.value) return
+  historyError.value = ''
+  try {
+    const response = await emitSocketEvent(socket, 'direct:message:send', { username: activeUsername.value, body })
+    if (!response?.success) throw new Error(response?.error || 'Message could not be sent.')
+    appendMessage(response.message)
+  } catch (error) {
+    historyError.value = error.message
+  }
+}
+
+function appendMessage(message) {
+  if (message && !messages.value.some((entry) => String(entry.id) === String(message.id))) {
+    messages.value.push(message)
+  }
+}
+
+function receiveMessage(payload) {
+  if (payload.with === activeUsername.value) appendMessage(payload.message)
+}
+
+function handleConnect() {
+  connected.value = true
+  connectionError.value = ''
+  joinActiveDirect()
+}
+
+function handleDisconnect() {
+  connected.value = false
+  directJoined.value = false
+  joinedUsername.value = ''
+}
+
+function handleConnectError(error) {
+  connected.value = false
+  directJoined.value = false
+  connectionError.value = error.message === 'Authentication required.'
+    ? 'Log in to use direct messages.'
+    : 'Unable to connect to direct messages.'
+}
+
+function applyInitialContact() {
+  const username = typeof route.query.with === 'string' ? route.query.with : ''
+  if (username && username !== activeUsername.value) {
+    users.value = [{ username }]
+    search.value = username
+    openConversation(username)
+  }
+}
+
+onMounted(() => {
+  socket = getChatSocket()
+  socket.on('connect', handleConnect)
+  socket.on('disconnect', handleDisconnect)
+  socket.on('connect_error', handleConnectError)
+  socket.on('direct:message', receiveMessage)
+  connected.value = socket.connected
+  applyInitialContact()
+})
+watch(() => route.query.with, applyInitialContact)
+onBeforeUnmount(() => {
+  leaveActiveDirect()
+  socket?.off('direct:message', receiveMessage)
+  socket?.off('connect', handleConnect)
+  socket?.off('disconnect', handleDisconnect)
+  socket?.off('connect_error', handleConnectError)
+})
 </script>
+
+<style scoped>
+.inbox-page { height: calc(100vh - 56px); overflow: hidden; }
+.contacts { width: 310px; flex-shrink: 0; display: flex; flex-direction: column; border-right: 1px solid var(--reddit-border-soft); }
+.contacts header { padding: 20px 18px 12px; }
+.contacts h1 { font-size: 18px; font-weight: 700; }
+.contacts h1 i { margin-right: 9px; }
+.contacts header p { margin-top: 5px; color: var(--reddit-text-secondary); font-size: 13px; }
+.find-person { display: flex; gap: 7px; margin: 0 12px 12px; }
+.find-person input { flex: 1; min-width: 0; height: 42px; padding: 0 14px; border: 1px solid transparent; border-radius: 22px; background: var(--reddit-surface-inset); }
+.find-person input:focus { border-color: var(--reddit-blue); outline: none; }
+.find-person button { width: 42px; border-radius: 50%; background: var(--reddit-blue); color: white; }
+.find-person button:disabled { opacity: .45; }
+.side-error { padding: 0 16px 8px; color: #b42318; font-size: 12px; }
+.contact-list { overflow-y: auto; padding: 4px 8px; }
+.contact-list button { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 14px; }
+.contact-list button:hover, .contact-list .active { background: var(--reddit-surface-inset); }
+.contact-list span, .person-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: var(--reddit-blue); color: #fff; font-weight: 700; }
+.contact-list strong { font-size: 14px; }
+.empty-contact { padding: 38px 16px; color: var(--reddit-text-secondary); text-align: center; font-size: 13px; }
+.direct-panel { flex: 1; min-width: 0; }
+.direct-empty { flex: 1; display: grid; align-content: center; justify-items: center; gap: 10px; color: var(--reddit-text-secondary); text-align: center; }
+.direct-empty i { font-size: 36px; color: var(--reddit-text-muted); }
+.direct-empty h2 { color: var(--reddit-text); font-size: 20px; }
+.direct-empty p { font-size: 14px; }
+.direct-head { min-height: 70px; gap: 13px; padding: 12px 20px; border-bottom: 1px solid var(--reddit-border-soft); }
+.direct-head a { color: var(--reddit-text); text-decoration: none; }
+.direct-head h2 { font-size: 16px; }
+.direct-head p { margin-top: 3px; color: var(--reddit-text-secondary); font-size: 12px; }
+.follow { margin-left: auto; height: 38px; padding: 0 20px; border-radius: 20px; background: var(--reddit-blue); color: white; font-weight: 700; }
+.message-error { margin: 20px; padding: 14px; border-radius: 12px; background: #fff3f1; color: #b42318; font-size: 14px; }
+.message-error small { display: block; margin-top: 6px; color: var(--reddit-text-secondary); }
+@media (max-width: 760px) { .contacts { width: 100%; } .direct-panel { display: none !important; } }
+</style>

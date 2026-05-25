@@ -1,34 +1,42 @@
 import { ref } from 'vue'
 
 const USER_STORAGE_KEY = 'reddit_user'
-const AUTH_API_URL = './api/auth'
+const DEFAULT_API_BASE_URL = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api'
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '')
 
 async function authRequest(path, options = {}) {
   let response
   try {
-    console.info(`[auth] Requesting ${path}.php`)
-    response = await fetch(`${AUTH_API_URL}/${path}.php`, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
+    response = await fetch(`${API_BASE_URL}/auth/${path}`, {
+      credentials: 'include',
       ...options,
     })
   } catch {
-    console.error(`[auth] Cannot reach ${path}.php`)
     throw new Error('Cannot reach the authentication service.')
   }
 
-  const data = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    console.error(`[auth] ${path}.php failed (${response.status})`, data.details || data.error || 'No response detail')
-    throw new Error(data.details || data.error || 'Authentication request failed.')
+  let data
+  try {
+    data = await response.json()
+  } catch {
+    throw new Error('Authentication service returned an invalid response.')
   }
-  console.info(`[auth] ${path}.php succeeded`)
+
+  if (!data || typeof data.success !== 'boolean') {
+    throw new Error('Authentication service returned an unexpected response.')
+  }
+
+  if (!response.ok || !data.success) {
+    throw new Error(data.error || 'Authentication request failed.')
+  }
+
   return data
 }
 
 export async function login(credentials) {
   return authRequest('login', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(credentials),
   })
 }
@@ -36,19 +44,39 @@ export async function login(credentials) {
 export async function register(details) {
   return authRequest('register', {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(details),
   })
 }
 
+function normalizeAuthUser(user) {
+  const username = typeof user?.username === 'string' ? user.username.trim() : ''
+  if (!username) {
+    return null
+  }
+  return { ...user, username, loggedIn: true }
+}
+
 export function saveAuthSession({ user }) {
-  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, loggedIn: true }))
-  authenticatedUser.value = { ...user, loggedIn: true }
+  const sessionUser = normalizeAuthUser(user)
+  if (!sessionUser) {
+    throw new Error('Authentication response does not include a username.')
+  }
+
+  localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(sessionUser))
+  authenticatedUser.value = sessionUser
+  return sessionUser
 }
 
 export function getStoredUser() {
   try {
-    return JSON.parse(localStorage.getItem(USER_STORAGE_KEY)) || null
+    const user = normalizeAuthUser(JSON.parse(localStorage.getItem(USER_STORAGE_KEY)))
+    if (!user) {
+      localStorage.removeItem(USER_STORAGE_KEY)
+    }
+    return user
   } catch {
+    localStorage.removeItem(USER_STORAGE_KEY)
     return null
   }
 }
@@ -65,9 +93,8 @@ export function useAuthUser() {
 }
 
 export async function restoreAuthSession() {
-  const { user } = await authRequest('session')
-  saveAuthSession({ user })
-  return authenticatedUser.value
+  const { user } = await authRequest('session', { method: 'GET' })
+  return saveAuthSession({ user })
 }
 
 export async function logout() {

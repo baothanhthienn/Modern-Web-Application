@@ -1,142 +1,110 @@
 <template>
   <AppShell>
-    <div class="notifications-page">
+    <div class="notifications-page container-fluid">
       <div class="notifications-container">
-
-        <div class="page-header">
-          <h1 class="page-title">Notifications</h1>
-          <div class="header-actions">
-            <button class="btn-mark-all" @click="markAllRead">
-              <i class="fa-solid fa-check-double"></i> Mark all as read
-            </button>
-            <select v-model="filterType" class="filter-select">
-              <option value="all">All</option>
-              <option value="unread">Unread</option>
-              <option value="mentions">Mentions</option>
-              <option value="upvotes">Upvotes</option>
-              <option value="comments">Comments</option>
-            </select>
+        <header class="page-header d-flex align-items-center justify-content-between flex-wrap gap-3">
+          <div>
+            <h1>Notifications</h1>
+            <p>Account updates delivered by the server.</p>
           </div>
-        </div>
-
-        <!-- Notification list -->
-        <div class="notif-list">
-          <div
-            v-for="notif in filteredNotifications"
-            :key="notif.id"
-            class="notif-item"
-            :class="{ 'notif-item--unread': !notif.read }"
-            @click="markRead(notif)"
-          >
-            <!-- Icon -->
-            <div class="notif-icon" :class="`notif-icon--${notif.type}`">
-              <i :class="notifIcon(notif.type)"></i>
-            </div>
-
-            <!-- Content -->
-            <div class="notif-content">
-              <div class="notif-text">
-                <strong>{{ notif.from }}</strong>
-                {{ notif.action }}
-                <router-link :to="notif.link" class="notif-link" @click.stop>
-                  {{ notif.subject }}
-                </router-link>
-              </div>
-              <div class="notif-meta">
-                <span>r/{{ notif.community }}</span>
-                <span>·</span>
-                <span>{{ formatTime(notif.timestamp) }}</span>
-              </div>
-            </div>
-
-            <!-- Unread dot -->
-            <div v-if="!notif.read" class="notif-unread-dot"></div>
+          <div class="filters d-flex gap-2" aria-label="Notification filters">
+            <button :class="{ selected: filter === 'all' }" @click="filter = 'all'">All</button>
+            <button :class="{ selected: filter === 'unread' }" @click="filter = 'unread'">Unread</button>
           </div>
+        </header>
 
-          <!-- Empty state -->
-          <div v-if="filteredNotifications.length === 0" class="empty-notif">
+        <section class="notification-card">
+          <div v-if="loading" class="state">Loading notifications...</div>
+          <div v-else-if="error" class="state state--error">{{ error }}</div>
+          <template v-else-if="filteredNotifications.length">
+            <router-link
+              v-for="notification in filteredNotifications"
+              :key="notification.id"
+              :to="notification.postId ? `/post/${notification.postId}` : '/'"
+              class="notification"
+              :class="{ unread: !notification.read }"
+            >
+              <span class="icon"><i :class="iconFor(notification.type)"></i></span>
+              <div class="notification-copy">
+                <strong>{{ notification.message }}</strong>
+                <p>
+                  <span v-if="notification.actor">u/{{ notification.actor }}</span>
+                  <span v-if="notification.postId">Post #{{ notification.postId }}</span>
+                  <span>{{ formatRelativeTime(notification.createdAt) }}</span>
+                </p>
+              </div>
+              <span v-if="!notification.read" class="unread-dot" aria-label="Unread"></span>
+            </router-link>
+            <button v-if="nextCursor" class="load-more" @click="loadNotifications(nextCursor)">Load more</button>
+          </template>
+          <div v-else class="state">
             <i class="fa-regular fa-bell-slash"></i>
-            <p>No notifications here</p>
+            <p>No {{ filter === 'unread' ? 'unread ' : '' }}notifications.</p>
           </div>
-        </div>
-
+        </section>
       </div>
     </div>
   </AppShell>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import AppShell from '../components/AppShell.vue'
+import { getNotifications } from '../services/api.js'
+import { formatRelativeTime } from '../services/format.js'
 
-const filterType = ref('all')
+const notifications = ref([])
+const nextCursor = ref(null)
+const filter = ref('all')
+const loading = ref(true)
+const error = ref('')
+const filteredNotifications = computed(() => filter.value === 'unread'
+  ? notifications.value.filter((notification) => !notification.read)
+  : notifications.value)
 
-const notifications = ref([
-  { id: 1, type: 'upvote',  from: 'alice_dev',   action: 'upvoted your post',    subject: '"New breakthrough in quantum..."', community: 'technology',  link: '/post/1', read: false, timestamp: Date.now() - 300000 },
-  { id: 2, type: 'comment', from: 'bob_coder',    action: 'commented on',         subject: '"What took you embarrassingly..."', community: 'programming', link: '/post/2', read: false, timestamp: Date.now() - 900000 },
-  { id: 3, type: 'mention', from: 'charlie_99',   action: 'mentioned you in',     subject: 'r/technology',                 community: 'technology',  link: '/chat/technology', read: false, timestamp: Date.now() - 1800000 },
-  { id: 4, type: 'reaction',from: 'dev_life',     action: 'reacted 🔥 to your message in', subject: 'r/programming Live Chat', community: 'programming', link: '/chat/programming', read: true, timestamp: Date.now() - 3600000 },
-  { id: 5, type: 'upvote',  from: 'gamer_pro',    action: 'upvoted your comment', subject: 'Global renewable energy...',   community: 'worldnews',   link: '/post/3', read: true,  timestamp: Date.now() - 7200000 },
-  { id: 6, type: 'dm',      from: 'alice_dev',    action: 'sent you a message',   subject: '"Hey, did you see the new..."', community: 'inbox',       link: '/inbox',  read: false, timestamp: Date.now() - 120000 },
-])
+function iconFor(type) {
+  return {
+    post_created: 'fa-solid fa-pen-to-square',
+  }[type] || 'fa-regular fa-bell'
+}
 
-const filteredNotifications = computed(() => {
-  if (filterType.value === 'all') return notifications.value
-  if (filterType.value === 'unread') return notifications.value.filter(n => !n.read)
-  return notifications.value.filter(n => n.type === filterType.value.slice(0, -1))
-})
-
-function notifIcon(type) {
-  const map = {
-    upvote:   'fa-solid fa-arrow-up',
-    comment:  'fa-regular fa-message',
-    mention:  'fa-solid fa-at',
-    reaction: 'fa-regular fa-face-smile',
-    dm:       'fa-solid fa-envelope',
-    award:    'fa-solid fa-trophy',
+async function loadNotifications(cursor) {
+  error.value = ''
+  try {
+    const data = await getNotifications({ cursor })
+    notifications.value = cursor
+      ? [...notifications.value, ...data.notifications]
+      : data.notifications
+    nextCursor.value = data.nextCursor
+  } catch (loadError) {
+    error.value = loadError.message
+  } finally {
+    loading.value = false
   }
-  return map[type] || 'fa-solid fa-bell'
 }
 
-function markRead(notif) { notif.read = true }
-function markAllRead()   { notifications.value.forEach(n => n.read = true) }
-
-function formatTime(ts) {
-  const diff = Date.now() - ts
-  if (diff < 60000)    return 'just now'
-  if (diff < 3600000)  return Math.floor(diff / 60000) + 'm ago'
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago'
-  return Math.floor(diff / 86400000) + 'd ago'
-}
+onMounted(() => loadNotifications())
 </script>
 
 <style scoped>
-.notifications-page { padding: 20px; }
-.notifications-container { max-width: 740px; margin: 0 auto; }
-.page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; }
-.page-title { font-size: 20px; font-weight: 700; }
-.header-actions { display: flex; align-items: center; gap: 10px; }
-.btn-mark-all { display: flex; align-items: center; gap: 6px; padding: 6px 14px; border: 1px solid #EDEFF1; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; background: white; font-family: inherit; transition: background 0.1s; }
-.btn-mark-all:hover { background: #F6F7F8; }
-.filter-select { padding: 6px 10px; border: 1px solid #EDEFF1; border-radius: 20px; font-size: 13px; font-family: inherit; outline: none; background: white; cursor: pointer; }
-.notif-list { background: white; border: 1px solid #EDEFF1; border-radius: 4px; overflow: hidden; }
-.notif-item { display: flex; align-items: flex-start; gap: 14px; padding: 14px 16px; border-bottom: 1px solid #F6F7F8; cursor: pointer; transition: background 0.1s; position: relative; }
-.notif-item:last-child { border-bottom: none; }
-.notif-item:hover { background: #F6F7F8; }
-.notif-item--unread { background: #FFF8F7; }
-.notif-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; color: white; }
-.notif-icon--upvote   { background: #FF4500; }
-.notif-icon--comment  { background: #0079D3; }
-.notif-icon--mention  { background: #A855F7; }
-.notif-icon--reaction { background: #F59E0B; }
-.notif-icon--dm       { background: #22C55E; }
-.notif-icon--award    { background: #EAB308; }
-.notif-content { flex: 1; min-width: 0; }
-.notif-text { font-size: 14px; line-height: 1.5; }
-.notif-link { color: #0079D3; text-decoration: none; }
-.notif-link:hover { text-decoration: underline; }
-.notif-meta { font-size: 12px; color: #878A8C; margin-top: 3px; display: flex; gap: 6px; }
-.notif-unread-dot { width: 8px; height: 8px; border-radius: 50%; background: #FF4500; flex-shrink: 0; margin-top: 6px; }
-.empty-notif { padding: 60px 20px; text-align: center; color: #878A8C; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.empty-notif i { font-size: 40px; }
+.notifications-page { padding: 22px 16px 56px; }
+.notifications-container { max-width: 760px; margin: 0 auto; }
+.page-header { margin-bottom: 20px; }
+.page-header h1 { font-size: 24px; font-weight: 700; letter-spacing: -.025em; }
+.page-header p { margin-top: 4px; color: var(--reddit-text-secondary); font-size: 13px; }
+.filters button { height: 38px; padding: 0 17px; border-radius: 20px; color: var(--reddit-text-secondary); font-size: 13px; font-weight: 700; }
+.filters button:hover, .filters .selected { background: var(--reddit-surface-inset); color: var(--reddit-text); }
+.notification-card { overflow: hidden; border: 1px solid var(--reddit-border-soft); border-radius: 16px; }
+.notification { min-height: 76px; display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--reddit-border-soft); color: var(--reddit-text); text-decoration: none; }
+.notification:hover { background: var(--reddit-surface-inset); }
+.notification.unread { background: rgba(255, 69, 0, .035); }
+.icon { width: 42px; height: 42px; display: grid; place-items: center; flex-shrink: 0; border-radius: 50%; background: rgba(255, 69, 0, .12); color: var(--reddit-orange); }
+.notification-copy { flex: 1; }
+.notification-copy strong { font-size: 14px; font-weight: 600; }
+.notification-copy p { margin-top: 5px; display: flex; gap: 10px; color: var(--reddit-text-meta); font-size: 12px; }
+.unread-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--reddit-orange); }
+.state { min-height: 220px; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--reddit-text-secondary); font-size: 14px; }
+.state i { color: var(--reddit-text-muted); font-size: 32px; }
+.state--error { color: #b42318; }
+.load-more { display: block; margin: 16px auto; height: 40px; padding: 0 20px; border: 1px solid var(--reddit-border-emphasis); border-radius: 21px; font-weight: 700; }
 </style>
