@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
 const USER_STORAGE_KEY = 'reddit_user'
-const DEFAULT_API_BASE_URL = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api'
+const DEFAULT_API_BASE_URL = 'https://modern-web-application-backend-production.up.railway.app/api'
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '')
 
 async function authRequest(path, options = {}) {

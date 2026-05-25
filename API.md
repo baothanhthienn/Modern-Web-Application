@@ -33,7 +33,7 @@ session token. The database stores only a SHA-256 hash of that token.
 Set the frontend's public API configuration to the deployed backend:
 
 ```text
-VITE_API_BASE_URL=https://<railway-api-domain>/api
+VITE_API_BASE_URL=https://modern-web-application-backend-production.up.railway.app/api
 ```
 
 For local development:

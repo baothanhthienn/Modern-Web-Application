@@ -6,20 +6,20 @@ described in `API.md`.
 
 ## Local Development
 
-Start the Express backend on `http://localhost:3000`, then run the frontend:
+The frontend now uses the deployed Railway API by default:
+
+```text
+https://modern-web-application-backend-production.up.railway.app/api
+```
+
+Run the frontend:
 
 ```bash
 npm install
 npm run dev
 ```
 
-In development, the frontend defaults to:
-
-```text
-http://localhost:3000/api
-```
-
-To use another API host, copy `.env.example` to `.env.local` and update:
+To use a local backend instead, create `.env.local`:
 
 ```text
 VITE_API_BASE_URL=http://localhost:3000/api
@@ -53,10 +53,10 @@ Railway configuration.
 
 ## Backend Verification
 
-With the local backend running, open:
+For the deployed backend, open:
 
 ```text
-http://localhost:3000/api/health
+https://modern-web-application-backend-production.up.railway.app/api/health
 ```
 
 A functioning backend responds with JSON:
@@ -69,15 +69,15 @@ Before login, requesting the session endpoint should return an unauthenticated
 JSON response:
 
 ```text
-http://localhost:3000/api/auth/session
+https://modern-web-application-backend-production.up.railway.app/api/auth/session
 ```
 
 ## Production Build
 
-Configure the deployed API URL before building:
+The deployed API URL is configured as the default. It can also be overridden before building:
 
 ```text
-VITE_API_BASE_URL=https://<railway-api-domain>/api
+VITE_API_BASE_URL=https://modern-web-application-backend-production.up.railway.app/api
 ```
 
 Then build the static frontend:

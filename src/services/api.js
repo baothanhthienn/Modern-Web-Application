@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api'
+const DEFAULT_API_BASE_URL = 'https://modern-web-application-backend-production.up.railway.app/api'
 
 export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL).replace(/\/$/, '')
 export const API_ORIGIN = new URL(API_BASE_URL, window.location.origin).origin
