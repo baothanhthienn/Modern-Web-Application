@@ -76,7 +76,7 @@
             <!--
               READ RECEIPT BADGE — Feature 1B
               Status advances: sent → delivered → seen
-              The status is updated in real-time via Socket.io (receipt-update event).
+              New local messages retain their sent state because there is no remote recipient.
               Each status has a different icon and colour.
             -->
             <span class="receipt-badge" :class="`receipt-badge--${message.status}`" :title="receiptTitle(message.status)">
@@ -193,4 +193,3 @@ function receiptTitle(status) {
   return { sent: 'Sent', delivered: 'Delivered', seen: 'Seen' }[status] || ''
 }
 </script>
-

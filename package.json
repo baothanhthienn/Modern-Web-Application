@@ -10,22 +10,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:all": "node scripts/dev.js",
-    "server": "node server/server.js",
-    "start": "NODE_ENV=production node server/server.js",
-    "db:init": "node server/init-db.js",
-    "db:seed": "node server/seed-db.js",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:php": "php -S 127.0.0.1:8000 -t dist"
   },
   "dependencies": {
-    "axios": "^1.16.1",
     "bootstrap": "^5.3.8",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "mysql2": "^3.22.3",
-    "socket.io": "^4.8.3",
-    "socket.io-client": "^4.8.3",
     "vue": "^3.5.32",
     "vue-advanced-cropper": "^2.8.9",
     "vue-router": "^5.0.7"

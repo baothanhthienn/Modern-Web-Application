@@ -15,15 +15,13 @@
       │  │  [bob_coder]     │  │  MessageList             ││  │
       │  │  [charlie_99]    │  │  (same component as chat)││  │
       │  │                  │  ├──────────────────────────┤│  │
-      │  │                  │  │  TypingIndicator         ││  │
-      │  │                  │  ├──────────────────────────┤│  │
       │  │                  │  │  MessageInput            ││  │
       │  │                  │  └──────────────────────────┘│  │
       │  └──────────────────┴──────────────────────────────┘  │
       └──────────────────────────────────────────────────────┘
 
     The Inbox reuses the same MessageList, MessageInput,
-    TypingIndicator, and ReactionPicker components as ChatView.
+    ReactionPicker components as ChatView.
     The only difference is that DM rooms use user-based IDs
     (e.g. "dm:bao_dev:alice_dev") instead of community IDs.
   -->
@@ -172,16 +170,11 @@
             @react="handleReaction"
           />
 
-          <!-- Feature 1A — Typing indicator for DMs -->
-          <TypingIndicator :users="typingUsers" />
-
           <!-- Message input -->
           <MessageInput
             :disabled="false"
             :roomName="activeConv.with"
             @send="handleSend"
-            @typing="handleTyping"
-            @stopTyping="handleStopTyping"
           />
 
         </template>
@@ -224,28 +217,18 @@
 </template>
 
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import AppShell from '../components/AppShell.vue'
 import MessageList from '../components/chat/MessageList.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
-import TypingIndicator from '../components/chat/TypingIndicator.vue'
-import { useSocket } from '../composables/useSocket.js'
+import { useLocalMessages } from '../composables/useLocalMessages.js'
 import { getStoredUser } from '../services/auth.js'
 
-// ── Socket composable ──
 const {
-  typingUsers,
-  joinRoom,
-  leaveRoom,
-  sendMessage,
-  onNewMessage,
-  emitTyping,
-  stopTyping,
-  markRoomSeen,
-  onReceiptUpdate,
-  emitReaction,
-  onReactionUpdate,
-} = useSocket()
+  loadMessages,
+  saveMessages,
+  addMessage,
+} = useLocalMessages()
 
 // Use the authenticated account when present; keep demo identity for guest preview mode.
 const currentUser = ref(getStoredUser()?.username || 'bao_dev')
@@ -258,8 +241,7 @@ const newDMUsername   = ref('')
 const convSearch      = ref('')
 const activeTab       = ref('all')
 
-// ── Conversations mock data ──
-// In production: fetch from GET /api/conversations
+// Conversations are demo data; message changes persist in this browser.
 const conversations = ref([
   {
     id: 'dm:bao_dev:alice_dev',
@@ -336,106 +318,19 @@ const activeConv = computed(() =>
   conversations.value.find(c => c.id === activeConvId.value) || null
 )
 
-// Loads DM history from MySQL and falls back to demo messages.
-async function loadDMMessages(convId) {
-  try {
-    const res = await fetch(`/api/messages/${encodeURIComponent(convId)}`)
-    const data = await res.json()
-    if (data.success) {
-      dmMessages.value = data.messages
-      return
-    }
-  } catch {
-    // keep using demo data when the backend is not running
-  }
-
-  const mockData = {
-    'dm:bao_dev:alice_dev': [
-      { id: 1, username: 'alice_dev', text: 'Hey! Did you see the new quantum computing article?', timestamp: Date.now() - 600000, status: 'seen', reactions: {} },
-      { id: 2, username: 'bao_dev',   text: 'Yes! It\'s incredible. 100x speed improvements is insane', timestamp: Date.now() - 540000, status: 'seen', reactions: { '🔥': ['alice_dev'] } },
-      { id: 3, username: 'alice_dev', text: 'I know right! Makes you wonder how much longer classical computing has', timestamp: Date.now() - 480000, status: 'seen', reactions: {} },
-      { id: 4, username: 'alice_dev', text: 'Hey, did you see the new post about M4?', timestamp: Date.now() - 120000, status: 'delivered', reactions: {} },
-    ],
-    'dm:bao_dev:bob_coder': [
-      { id: 1, username: 'bao_dev',   text: 'Hey Bob, do you know how to fix the pagination bug?', timestamp: Date.now() - 7200000, status: 'seen', reactions: {} },
-      { id: 2, username: 'bob_coder', text: 'Yeah! You need to reset currentPage when the search changes', timestamp: Date.now() - 7000000, status: 'seen', reactions: { '👍': ['bao_dev'] } },
-      { id: 3, username: 'bao_dev',   text: 'Perfect, that worked! Thanks so much', timestamp: Date.now() - 6900000, status: 'seen', reactions: {} },
-      { id: 4, username: 'bob_coder', text: 'Thanks for the help earlier!', timestamp: Date.now() - 3600000, status: 'delivered', reactions: {} },
-    ],
-  }
-  dmMessages.value = mockData[convId] || []
-}
-
 // ── Select a conversation ──
-async function selectConversation(conv) {
-  if (activeConvId.value) leaveRoom(activeConvId.value, currentUser.value)
-
+function selectConversation(conv) {
   activeConvId.value = conv.id
 
   // Clear unread badge
   conv.unread = 0
 
-  // Load messages for this conversation
-  await loadDMMessages(conv.id)
-
-  // Join socket room for this DM thread
-  joinRoom(conv.id, currentUser.value)
-
-  // Mark as seen — triggers receipt-update for the other person
-  markRoomSeen(conv.id, currentUser.value)
+  dmMessages.value = loadMessages(conv.id)
 }
-
-// ── Socket event handlers ──
-onNewMessage((message) => {
-  if (message.roomId === activeConvId.value) {
-    const tempIndex = dmMessages.value.findIndex(m => m.id === message.tempId)
-    if (tempIndex >= 0) {
-      dmMessages.value[tempIndex] = message
-    } else if (!dmMessages.value.some(m => m.id === message.id)) {
-      dmMessages.value.push(message)
-    }
-    // Update conversation preview
-    const conv = conversations.value.find(c => c.id === message.roomId)
-    if (conv) {
-      conv.lastMessage   = message.text
-      conv.lastTimestamp = message.timestamp
-      conv.lastSender    = message.username
-    }
-  } else {
-    // Increment unread for background conversation
-    const conv = conversations.value.find(c => c.id === message.roomId)
-    if (conv) {
-      conv.unread++
-      conv.lastMessage   = message.text
-      conv.lastTimestamp = message.timestamp
-      conv.lastSender    = message.username
-    }
-  }
-})
-
-onReceiptUpdate(({ messageId, tempId, status }) => {
-  const msg = dmMessages.value.find(m => m.id === messageId || m.id === tempId)
-  if (msg) msg.status = status
-})
-
-onReactionUpdate(({ messageId, reactions }) => {
-  const msg = dmMessages.value.find(m => m.id === messageId)
-  if (msg) msg.reactions = reactions
-})
 
 // ── User actions ──
 function handleSend(text) {
-  const tempId = 'temp-' + Date.now()
-  const tempMsg = {
-    id: tempId,
-    username: currentUser.value,
-    text,
-    timestamp: Date.now(),
-    status: 'sent',
-    reactions: {},
-    roomId: activeConvId.value,
-  }
-  dmMessages.value.push(tempMsg)
+  dmMessages.value.push(addMessage(activeConvId.value, text, currentUser.value))
 
   // Update conversation preview
   if (activeConv.value) {
@@ -444,15 +339,6 @@ function handleSend(text) {
     activeConv.value.lastSender    = currentUser.value
   }
 
-  sendMessage(activeConvId.value, text, currentUser.value, tempId)
-}
-
-function handleTyping() {
-  if (activeConvId.value) emitTyping(activeConvId.value, currentUser.value)
-}
-
-function handleStopTyping() {
-  if (activeConvId.value) stopTyping(activeConvId.value, currentUser.value)
 }
 
 function handleReaction(messageId, emoji) {
@@ -467,7 +353,7 @@ function handleReaction(messageId, emoji) {
       msg.reactions[emoji] = [...users, currentUser.value]
     }
   }
-  emitReaction(messageId, emoji, currentUser.value, activeConvId.value)
+  saveMessages(activeConvId.value, dmMessages.value)
 }
 
 // ── Start a new DM ──
@@ -522,7 +408,4 @@ function avatarColor(username) {
   return colors[Math.abs(hash) % colors.length]
 }
 
-onUnmounted(() => {
-  if (activeConvId.value) leaveRoom(activeConvId.value, currentUser.value)
-})
 </script>

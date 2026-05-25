@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHashHistory } from 'vue-router'
 
 // Views — lazy-loaded for performance
 const HomeView     = () => import('../views/HomeView.vue')
@@ -28,7 +28,7 @@ const routes = [
 ]
 
 export default createRouter({
-  history: createWebHistory(),
+  history: createWebHashHistory(),
   routes,
   // Scroll to top on every navigation
   scrollBehavior() { return { top: 0 } }

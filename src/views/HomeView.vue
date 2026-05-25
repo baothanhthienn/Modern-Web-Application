@@ -108,14 +108,14 @@
               <!--
                 CHAT REACTION shortcut
                 Shows an emoji 🔥 reaction count to hint at the Chat feature.
-                Clicking it takes you to the live chat for this post's community.
+                Clicking it opens the locally saved conversation for this community.
               -->
               <button
                 class="action-btn action-btn--reaction"
                 @click.stop="$router.push(`/chat/${post.community}`)"
-                title="Join live chat for this community"
+                title="Open the local chat for this community"
               >
-                🔥 {{ post.reactions }} Live
+                🔥 {{ post.reactions }} Chat
               </button>
 
               <button class="action-btn action-btn--more">
@@ -161,14 +161,14 @@
         <div class="sidebar-card sidebar-card--chat">
           <div class="chat-card-header">
             <strong>Community chats</strong>
-            <span class="chat-live-indicator"><span class="live-dot"></span> LIVE</span>
+            <span class="chat-live-indicator"><span class="live-dot"></span> LOCAL</span>
           </div>
-          <p class="chat-card-desc">Real-time conversations happening now.</p>
+          <p class="chat-card-desc">Conversations saved on this device.</p>
           <div class="chat-rooms-preview">
             <div v-for="room in chatRooms" :key="room.id" class="chat-room-row" @click="$router.push(`/chat/${room.id}`)">
               <div class="room-dot" :style="{ background: room.color }"></div>
               <span class="room-name">{{ room.name }}</span>
-              <span class="room-count">{{ room.online }} online</span>
+              <span class="room-count">{{ room.online }} members</span>
             </div>
           </div>
           <router-link to="/chat" class="btn-join-chat">

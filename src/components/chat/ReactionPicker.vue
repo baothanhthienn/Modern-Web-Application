@@ -2,7 +2,7 @@
   <!--
     ReactionPicker.vue
     ============================================================
-    FEATURE 2 — Emoji Reactions with Live Updates
+    FEATURE 2 — Browser-local Emoji Reactions
 
     This component has TWO modes:
       1. Reaction display bar — shows existing emoji reactions
@@ -19,7 +19,7 @@
                              emojis the user has already reacted with)
 
     Emits:
-      react (emoji) — parent (MessageList) calls useSocket().emitReaction()
+      react (emoji) — parent updates the locally stored message
   -->
   <div class="reaction-container">
 
@@ -69,8 +69,7 @@
     <!-- ── Emoji picker popup ── -->
     <!--
       v-if="showPicker" — only mounts when needed (performance).
-      Clicking an emoji emits 'react' to the parent, which calls
-      useSocket().emitReaction() to broadcast via Socket.io.
+      Clicking an emoji emits 'react' to the parent for local persistence.
     -->
     <div v-if="showPicker" class="emoji-picker" ref="pickerRef">
       <div class="picker-header">React with emoji</div>
@@ -122,8 +121,6 @@ const props = defineProps({
 })
 
 // ── Emits ──
-// The parent (MessageList) listens for 'react' and calls
-// useSocket().emitReaction(messageId, emoji, username)
 const emit = defineEmits(['react'])
 
 // ── State ──
@@ -159,7 +156,6 @@ function togglePicker() {
 }
 
 function selectEmoji(emoji) {
-  // Emit to parent — parent will call useSocket().emitReaction()
   emit('react', emoji)
   // Close the picker after selecting
   showPicker.value = false
@@ -179,4 +175,3 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', handleClickOutside, true)
 })
 </script>
-

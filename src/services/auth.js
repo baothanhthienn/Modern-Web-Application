@@ -1,16 +1,16 @@
-const AUTH_API_URL = '/api/auth'
 const USER_STORAGE_KEY = 'reddit_user'
+const AUTH_API_URL = './api/auth'
 
-async function authRequest(path, options) {
+async function authRequest(path, options = {}) {
   let response
   try {
-    response = await fetch(`${AUTH_API_URL}${path}`, {
+    response = await fetch(`${AUTH_API_URL}/${path}.php`, {
       headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
+      credentials: 'same-origin',
       ...options,
     })
   } catch {
-    throw new Error('Cannot reach the server. Start the backend and try again.')
+    throw new Error('Cannot reach the authentication service.')
   }
 
   const data = await response.json().catch(() => ({}))
@@ -21,14 +21,14 @@ async function authRequest(path, options) {
 }
 
 export async function login(credentials) {
-  return authRequest('/login', {
+  return authRequest('login', {
     method: 'POST',
     body: JSON.stringify(credentials),
   })
 }
 
 export async function register(details) {
-  return authRequest('/register', {
+  return authRequest('register', {
     method: 'POST',
     body: JSON.stringify(details),
   })
@@ -36,7 +36,6 @@ export async function register(details) {
 
 export function saveAuthSession({ user }) {
   localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, loggedIn: true }))
-  localStorage.removeItem('reddit_session_token')
 }
 
 export function getStoredUser() {
@@ -49,18 +48,17 @@ export function getStoredUser() {
 
 export function clearStoredAuth() {
   localStorage.removeItem(USER_STORAGE_KEY)
-  localStorage.removeItem('reddit_session_token')
 }
 
 export async function restoreAuthSession() {
-  const { user } = await authRequest('/session', { method: 'GET' })
+  const { user } = await authRequest('session')
   localStorage.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, loggedIn: true }))
   return user
 }
 
 export async function logout() {
   try {
-    await authRequest('/session', { method: 'DELETE' })
+    await authRequest('logout', { method: 'POST' })
   } finally {
     clearStoredAuth()
   }

@@ -86,15 +86,12 @@
         <div class="sidebar-divider"></div>
         <div class="sidebar-section-label">Custom Feeds</div>
 
-        <!--
-          CHAT shortcut — links to the Chat page.
-          Shows a green "LIVE" indicator to signal real-time.
-        -->
+        <!-- Community conversations are stored in this browser. -->
         <router-link to="/chat" class="sidebar-item" active-class="sidebar-item--active">
           <div class="nav-item-inner sidebar-item-chat">
             <i class="fa-solid fa-comments"></i>
             <span>Community Chats</span>
-            <span class="live-badge">LIVE</span>
+            <span class="live-badge">LOCAL</span>
           </div>
         </router-link>
 
@@ -312,7 +309,7 @@ const communities = ref([
   border: 2px solid white;
 }
 
-/* Chat button — green live indicator */
+/* Chat button status indicator */
 .chat-btn { color: #16A34A; }
 .chat-btn:hover { color: #15803D; }
 .chat-live-dot {
@@ -423,7 +420,7 @@ const communities = ref([
 }
 .sidebar-item--active .nav-item-inner i { color: var(--reddit-orange); }
 
-/* LIVE Chat special styling */
+/* Local chat badge */
 .sidebar-item-chat { position: relative; }
 .live-badge {
   margin-left: auto;
