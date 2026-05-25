@@ -20,10 +20,12 @@ if (strlen($password) < 8 || !preg_match('/[A-Z]/', $password) || !preg_match('/
     respond(400, array('success' => false, 'error' => 'Password must be 8+ characters with uppercase, lowercase, and a number.'));
 }
 
+auth_log('Registration attempt for username=' . $username . ' email=' . $email);
 $db = database();
 $existing = $db->prepare('SELECT id FROM users WHERE username = ? OR email = ? LIMIT 1');
 $existing->execute(array($username, $email));
 if ($existing->fetch()) {
+    auth_log('Registration rejected because account already exists for username=' . $username);
     respond(409, array('success' => false, 'error' => 'That username or email is already registered.'));
 }
 
@@ -32,5 +34,6 @@ $insert = $db->prepare('INSERT INTO users (username, email, password_hash, creat
 $insert->execute(array($username, $email, new_password_hash($password), $createdAt));
 
 $user = array('id' => $db->lastInsertId(), 'username' => $username, 'email' => $email, 'created_at' => $createdAt);
-$_SESSION['user_id'] = (int) $user['id'];
+issue_session($db, $user['id']);
+auth_log('Registration successful for user_id=' . $user['id']);
 respond(201, array('success' => true, 'user' => public_user($user)));

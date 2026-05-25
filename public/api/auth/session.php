@@ -1,17 +1,12 @@
 <?php
 require_once dirname(__FILE__) . '/bootstrap.php';
 
-if (!isset($_SESSION['user_id'])) {
-    respond(401, array('success' => false, 'error' => 'Session expired or invalid.'));
-}
-
-$statement = database()->prepare('SELECT id, username, email, created_at FROM users WHERE id = ? LIMIT 1');
-$statement->execute(array((int) $_SESSION['user_id']));
-$user = $statement->fetch(PDO::FETCH_ASSOC);
-
+$db = database();
+$user = authenticated_user($db);
 if (!$user) {
-    session_destroy();
+    auth_log('Session check rejected: no valid database session.');
     respond(401, array('success' => false, 'error' => 'Session expired or invalid.'));
 }
 
+auth_log('Session restored for user_id=' . $user['id']);
 respond(200, array('success' => true, 'user' => public_user($user)));

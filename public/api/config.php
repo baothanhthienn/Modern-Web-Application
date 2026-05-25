@@ -7,7 +7,9 @@
 return array(
     'host' => 'feenix-mariadb.swin.edu.au',
     'port' => '3306',
-    'database' => 's105292789',
-    'username' => 's105292789_db',
-    'password' => '120806'
+    'database' => 's105292789_db',
+    'username' => 's105292789',
+    'password' => '120806',
+    // Keep true while diagnosing the connection, then set false before submission.
+    'debug' => true
 );

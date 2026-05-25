@@ -23,8 +23,10 @@ The PHP endpoints require a reachable MariaDB database and valid configuration.
 
 ## Database Authentication Setup
 
-1. Open `public/api/config.php` and replace the placeholder MariaDB database,
-   username, and password values before building for Mercury.
+1. Open `public/api/config.php` and set the FeeNIX MariaDB database, username,
+   and password before building for Mercury. The normal individual username is
+   `s` followed by your student number; use the database name shown in
+   phpMyAdmin for your account.
 2. Run the SQL in `public/api/schema.sql` through FeeNIX phpMyAdmin to create
    the `users` table.
 3. Build and upload the generated `dist/` contents, including `dist/api/`.
@@ -41,6 +43,30 @@ api/auth/logout.php
 Those PHP scripts connect to MariaDB using PDO and hold the authenticated
 session in PHP session storage. Database credentials are never included in the
 JavaScript bundle.
+
+## Authentication Diagnostics
+
+While troubleshooting, leave `'debug' => true` in `public/api/config.php`,
+rebuild, upload `dist/api/`, and open this URL on Mercury:
+
+```text
+https://mercury.swin.edu.au/<subject>/s<student-id>/api/health.php
+```
+
+A working connection responds with JSON containing:
+
+```json
+{ "success": true, "database": "connected" }
+```
+
+If the connection fails, the response includes the PDO error detail during
+debugging. Authentication requests also write messages using PHP `error_log()`;
+view these messages through the Mercury Apache error-log page. In your browser,
+the Vue authentication service logs request success or failure in Developer
+Tools Console.
+
+After diagnosis, set `'debug' => false` and build/upload again so SQL connection
+details are not displayed to visitors.
 
 ## Mercury Deployment
 

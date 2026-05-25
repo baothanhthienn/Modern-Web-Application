@@ -1,11 +1,8 @@
 <?php
 require_once dirname(__FILE__) . '/bootstrap.php';
 
-$_SESSION = array();
-if (ini_get('session.use_cookies')) {
-    $parameters = session_get_cookie_params();
-    setcookie(session_name(), '', time() - 42000, $parameters['path'], $parameters['domain'], $parameters['secure'], $parameters['httponly']);
-}
-session_destroy();
-
+auth_log('Logout requested.');
+$db = database();
+revoke_session($db);
+auth_log('Logout completed.');
 respond(200, array('success' => true));
