@@ -4,20 +4,30 @@
   "version": "0.1.0",
   "description": "A modern web application built with Vue and Vite.",
   "contributors": [
-    "Mudabbirul Saad"
+    "Pham Nguyen Gia Bao"
   ],
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev.js",
+    "server": "node server/server.js",
+    "db:init": "node server/init-db.js",
+    "db:seed": "node server/seed-db.js",
     "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "axios": "^1.16.1",
     "bootstrap": "^5.3.8",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "mysql2": "^3.22.3",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
     "vue": "^3.5.32",
     "vue-advanced-cropper": "^2.8.9",
-    "vue-router": "^4.6.4"
+    "vue-router": "^5.0.7"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.6",
