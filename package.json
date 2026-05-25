@@ -4,13 +4,16 @@
   "version": "0.1.0",
   "description": "A modern web application built with Vue and Vite.",
   "contributors": [
-    "Mudabbirul Saad"
+    "Pham Nguyen Gia Bao"
   ],
   "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev.js",
     "server": "node server/server.js",
+    "db:init": "node server/init-db.js",
+    "db:seed": "node server/seed-db.js",
     "build": "vite build",
     "preview": "vite preview"
   },

@@ -1,24 +1,8 @@
 import express from 'express'
 import http from 'http'
 import cors from 'cors'
-import mysql from 'mysql2/promise'
-import fs from 'fs'
-import path from 'path'
-import { fileURLToPath } from 'url'
 import { Server } from 'socket.io'
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const envPath = path.join(__dirname, '.env')
-
-if (fs.existsSync(envPath)) {
-  const envText = fs.readFileSync(envPath, 'utf8')
-  for (const line of envText.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) continue
-    const [key, ...valueParts] = trimmed.split('=')
-    if (!process.env[key]) process.env[key] = valueParts.join('=').trim()
-  }
-}
+import { closeDatabase, pool, verifyDatabaseConnection } from './db.js'
 
 const app = express()
 const server = http.createServer(app)
@@ -29,17 +13,6 @@ const io = new Server(server, {
   },
 })
 
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 3306,
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '120806',
-  database: process.env.DB_NAME || 's105292789_db',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-})
-
 app.use(cors())
 app.use(express.json())
 
@@ -48,11 +21,13 @@ const socketUsers = new Map()
 
 // Builds the emoji reaction object used by the Vue components.
 async function buildReactionsMap(messageId) {
+  console.log(`[chat] buildReactionsMap messageId=${messageId}`)
   const [rows] = await pool.execute(
     'SELECT emoji, username FROM chat_reactions WHERE message_id = ? ORDER BY created_at ASC',
     [messageId]
   )
 
+  console.log(`[chat] buildReactionsMap found ${rows.length} reaction(s)`)
   return rows.reduce((map, row) => {
     if (!map[row.emoji]) map[row.emoji] = []
     map[row.emoji].push(row.username)
@@ -62,6 +37,7 @@ async function buildReactionsMap(messageId) {
 
 // Gets room messages with reactions attached.
 async function getMessagesByRoom(roomId) {
+  console.log(`[chat] getMessagesByRoom roomId=${roomId}`)
   const [rows] = await pool.execute(
     `SELECT id, room_id AS roomId, username, text, timestamp, status, temp_id AS tempId
      FROM chat_messages
@@ -70,6 +46,7 @@ async function getMessagesByRoom(roomId) {
     [roomId]
   )
 
+  console.log(`[chat] getMessagesByRoom found ${rows.length} message(s)`)
   return Promise.all(rows.map(async message => ({
     ...message,
     reactions: await buildReactionsMap(message.id),
@@ -78,6 +55,7 @@ async function getMessagesByRoom(roomId) {
 
 // Saves a new message into MySQL.
 async function createMessage({ roomId, username, text, tempId }) {
+  console.log(`[chat] createMessage roomId=${roomId} username=${username} tempId=${tempId ?? 'none'} textLength=${text.trim().length}`)
   const timestamp = Date.now()
 
   const [result] = await pool.execute(
@@ -86,6 +64,7 @@ async function createMessage({ roomId, username, text, tempId }) {
     [roomId, username, text.trim(), timestamp, tempId || null]
   )
 
+  console.log(`[chat] createMessage created messageId=${result.insertId}`)
   return {
     id: result.insertId,
     roomId,
@@ -100,6 +79,7 @@ async function createMessage({ roomId, username, text, tempId }) {
 
 // Updates one message status in MySQL.
 async function updateMessageStatus(messageId, status) {
+  console.log(`[chat] updateMessageStatus messageId=${messageId} status=${status}`)
   await pool.execute(
     'UPDATE chat_messages SET status = ? WHERE id = ?',
     [status, messageId]
@@ -108,6 +88,7 @@ async function updateMessageStatus(messageId, status) {
 
 // Toggles one emoji reaction for one user.
 async function toggleReaction({ messageId, emoji, username, roomId }) {
+  console.log(`[chat] toggleReaction messageId=${messageId} roomId=${roomId} username=${username} emoji=${emoji}`)
   const [existing] = await pool.execute(
     `SELECT id FROM chat_reactions
      WHERE message_id = ? AND emoji = ? AND username = ?
@@ -116,8 +97,10 @@ async function toggleReaction({ messageId, emoji, username, roomId }) {
   )
 
   if (existing.length > 0) {
+    console.log(`[chat] toggleReaction removing reaction messageId=${messageId}`)
     await pool.execute('DELETE FROM chat_reactions WHERE id = ?', [existing[0].id])
   } else {
+    console.log(`[chat] toggleReaction adding reaction messageId=${messageId}`)
     await pool.execute(
       `INSERT INTO chat_reactions (message_id, room_id, emoji, username, created_at)
        VALUES (?, ?, ?, ?, ?)`,
@@ -130,12 +113,14 @@ async function toggleReaction({ messageId, emoji, username, roomId }) {
 
 // Sends delivery receipts for older messages when a user joins.
 async function updateDeliveryStatus(roomId, joiningUsername) {
+  console.log(`[chat] updateDeliveryStatus roomId=${roomId} joiningUsername=${joiningUsername}`)
   const [rows] = await pool.execute(
     `SELECT id, username FROM chat_messages
      WHERE room_id = ? AND username <> ? AND status = 'sent'`,
     [roomId, joiningUsername]
   )
 
+  console.log(`[chat] updateDeliveryStatus updating ${rows.length} message(s)`)
   for (const message of rows) {
     await updateMessageStatus(message.id, 'delivered')
 
@@ -151,24 +136,29 @@ async function updateDeliveryStatus(roomId, joiningUsername) {
 }
 
 app.get('/api/health', async (req, res) => {
+  console.log('[http] GET /api/health')
   try {
     await pool.query('SELECT 1')
     res.json({ success: true, database: 'connected' })
   } catch (error) {
+    console.error('[http] GET /api/health failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })
 
 app.get('/api/messages/:roomId', async (req, res) => {
+  console.log(`[http] GET /api/messages/${req.params.roomId}`)
   try {
     const messages = await getMessagesByRoom(req.params.roomId)
     res.json({ success: true, messages })
   } catch (error) {
+    console.error('[http] GET /api/messages failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })
 
 app.post('/api/messages', async (req, res) => {
+  console.log(`[http] POST /api/messages roomId=${req.body?.roomId ?? 'missing'} username=${req.body?.username ?? 'missing'}`)
   try {
     const { roomId, username, text, tempId } = req.body
     if (!roomId || !username || !text?.trim()) {
@@ -178,20 +168,24 @@ app.post('/api/messages', async (req, res) => {
     const message = await createMessage({ roomId, username, text, tempId })
     res.json({ success: true, message })
   } catch (error) {
+    console.error('[http] POST /api/messages failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })
 
 app.get('/api/reactions/:messageId', async (req, res) => {
+  console.log(`[http] GET /api/reactions/${req.params.messageId}`)
   try {
     const reactions = await buildReactionsMap(req.params.messageId)
     res.json({ success: true, reactions })
   } catch (error) {
+    console.error('[http] GET /api/reactions failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })
 
 app.post('/api/reactions', async (req, res) => {
+  console.log(`[http] POST /api/reactions messageId=${req.body?.messageId ?? 'missing'} roomId=${req.body?.roomId ?? 'missing'}`)
   try {
     const { messageId, emoji, username, roomId } = req.body
     if (!messageId || !emoji || !username || !roomId) {
@@ -201,11 +195,13 @@ app.post('/api/reactions', async (req, res) => {
     const reactions = await toggleReaction({ messageId, emoji, username, roomId })
     res.json({ success: true, reactions })
   } catch (error) {
+    console.error('[http] POST /api/reactions failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })
 
 app.delete('/api/reactions', async (req, res) => {
+  console.log(`[http] DELETE /api/reactions messageId=${req.body?.messageId ?? 'missing'}`)
   try {
     const { messageId, emoji, username } = req.body
     await pool.execute(
@@ -214,14 +210,17 @@ app.delete('/api/reactions', async (req, res) => {
     )
     res.json({ success: true, reactions: await buildReactionsMap(messageId) })
   } catch (error) {
+    console.error('[http] DELETE /api/reactions failed', error.message)
     res.status(500).json({ success: false, error: error.message })
   }
 })
 
 io.on('connection', (socket) => {
+  console.log(`[socket] connection socketId=${socket.id}`)
   socketUsers.set(socket.id, { username: null, rooms: new Set() })
 
   socket.on('join-room', async ({ roomId, username }) => {
+    console.log(`[socket] join-room socketId=${socket.id} roomId=${roomId} username=${username}`)
     try {
       socket.join(roomId)
 
@@ -235,12 +234,13 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('room-presence', Array.from(roomPresence.get(roomId)))
       await updateDeliveryStatus(roomId, username)
     } catch (error) {
-      console.error('[join-room failed]', error.message)
+      console.error('[socket] join-room failed', error.message)
       socket.emit('chat-error', error.message)
     }
   })
 
   socket.on('leave-room', ({ roomId, username }) => {
+    console.log(`[socket] leave-room socketId=${socket.id} roomId=${roomId} username=${username}`)
     socket.leave(roomId)
 
     const userData = socketUsers.get(socket.id)
@@ -253,19 +253,26 @@ io.on('connection', (socket) => {
   })
 
   socket.on('typing', ({ roomId, username }) => {
+    console.log(`[socket] typing roomId=${roomId} username=${username}`)
     socket.to(roomId).emit('user-typing', username)
   })
 
   socket.on('stop-typing', ({ roomId, username }) => {
+    console.log(`[socket] stop-typing roomId=${roomId} username=${username}`)
     socket.to(roomId).emit('user-stop-typing', username)
   })
 
-  socket.on('send-message', async ({ roomId, username, text, tempId }) => {
+  socket.on('send-message', async ({ roomId, username, text, tempId }, acknowledge = () => {}) => {
+    console.log(`[socket] send-message roomId=${roomId} username=${username} tempId=${tempId ?? 'none'}`)
     try {
-      if (!roomId || !username || !text?.trim()) return
+      if (!roomId || !username || !text?.trim()) {
+        acknowledge({ success: false, error: 'Missing message fields' })
+        return
+      }
 
       const message = await createMessage({ roomId, username, text, tempId })
       io.to(roomId).emit('new-message', message)
+      acknowledge({ success: true, message })
 
       const roomUsers = roomPresence.get(roomId)
       if (roomUsers && roomUsers.size > 1) {
@@ -277,16 +284,14 @@ io.on('connection', (socket) => {
         })
       }
     } catch (error) {
+      console.error('[socket] send-message failed', error.message)
+      acknowledge({ success: false, error: error.message })
       socket.emit('chat-error', error.message)
     }
   })
 
-  socket.on('broadcast-message', async (message) => {
-    if (!message?.roomId) return
-    socket.to(message.roomId).emit('new-message', message)
-  })
-
   socket.on('mark-seen', async ({ roomId, username }) => {
+    console.log(`[socket] mark-seen roomId=${roomId} username=${username}`)
     try {
       const [rows] = await pool.execute(
         `SELECT id, username FROM chat_messages
@@ -301,6 +306,7 @@ io.on('connection', (socket) => {
         [roomId, username]
       )
 
+      console.log(`[socket] mark-seen updated ${rows.length} message(s)`)
       for (const message of rows) {
         for (const [socketId, userData] of socketUsers.entries()) {
           if (userData.username === message.username) {
@@ -312,21 +318,25 @@ io.on('connection', (socket) => {
         }
       }
     } catch (error) {
+      console.error('[socket] mark-seen failed', error.message)
       socket.emit('chat-error', error.message)
     }
   })
 
   socket.on('add-reaction', async ({ messageId, emoji, username, roomId }) => {
+    console.log(`[socket] add-reaction messageId=${messageId} roomId=${roomId} username=${username} emoji=${emoji}`)
     try {
       if (!messageId || !emoji || !username || !roomId) return
       const reactions = await toggleReaction({ messageId, emoji, username, roomId })
       io.to(roomId).emit('reaction-updated', { messageId, reactions })
     } catch (error) {
+      console.error('[socket] add-reaction failed', error.message)
       socket.emit('chat-error', error.message)
     }
   })
 
   socket.on('disconnect', () => {
+    console.log(`[socket] disconnect socketId=${socket.id}`)
     const userData = socketUsers.get(socket.id)
     if (!userData) return
 
@@ -344,6 +354,39 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000
 
-server.listen(PORT, () => {
-  console.log(`Chat server running on http://localhost:${PORT}`)
-})
+async function startServer() {
+  console.log(`[server] startServer port=${PORT}`)
+  try {
+    await verifyDatabaseConnection()
+    console.log('Database connection pool ready')
+
+    server.listen(PORT, () => {
+      console.log(`[server] chat server running on http://localhost:${PORT}`)
+    })
+  } catch (error) {
+    console.error('[Database startup failed]', error.message)
+    await closeDatabase()
+    process.exitCode = 1
+  }
+}
+
+let isShuttingDown = false
+
+async function shutdown(signal) {
+  console.log(`[server] shutdown requested signal=${signal}`)
+  if (isShuttingDown) return
+  isShuttingDown = true
+
+  console.log(`[server] ${signal} received, closing server`)
+  io.close()
+  await closeDatabase()
+  server.close(() => {
+    console.log('[server] HTTP server closed')
+    process.exit(0)
+  })
+}
+
+process.once('SIGINT', () => shutdown('SIGINT'))
+process.once('SIGTERM', () => shutdown('SIGTERM'))
+
+startServer()

@@ -127,6 +127,17 @@ export function useSocket() {
   function sendMessage(roomId, text, username, tempId = Date.now()) {
     const payload = { roomId, text, username, tempId }
 
+    if (isConnected.value) {
+      socket.emit('send-message', payload, (response) => {
+        if (response?.success) {
+          messageHandlers.forEach(handler => handler(response.message))
+        } else {
+          console.error('[Chat save failed]', response?.error || 'Unknown socket error')
+        }
+      })
+      return
+    }
+
     fetch('http://localhost:3000/api/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -136,31 +147,26 @@ export function useSocket() {
       .then(data => {
         if (data.success) {
           messageHandlers.forEach(handler => handler(data.message))
-          if (isConnected.value) {
-            socket.emit('broadcast-message', data.message)
-          }
         }
       })
       .catch(error => {
         console.error('[Chat save failed]', error)
       })
 
-    if (!isConnected.value) {
-      setDemoTimer(() => {
-        receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'delivered' }))
-      }, 500)
+    setDemoTimer(() => {
+      receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'delivered' }))
+    }, 500)
 
-      setDemoTimer(() => {
-        receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'seen' }))
-      }, 1200)
+    setDemoTimer(() => {
+      receiptHandlers.forEach(handler => handler({ messageId: tempId, status: 'seen' }))
+    }, 1200)
 
-      setDemoTimer(() => {
-        reactionHandlers.forEach(handler => handler({
-          messageId: tempId,
-          reactions: { '👍': [pickDemoUser(username)] },
-        }))
-      }, 1800)
-    }
+    setDemoTimer(() => {
+      reactionHandlers.forEach(handler => handler({
+        messageId: tempId,
+        reactions: { '👍': [pickDemoUser(username)] },
+      }))
+    }, 1800)
   }
 
   // Registers a new message listener.
