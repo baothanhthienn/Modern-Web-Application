@@ -1,4 +1,4 @@
-const AUTH_API_URL = 'http://localhost:3000/api/auth'
+const AUTH_API_URL = '/api/auth'
 const USER_STORAGE_KEY = 'reddit_user'
 
 async function authRequest(path, options) {

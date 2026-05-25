@@ -1,6 +1,8 @@
 import express from 'express'
 import http from 'http'
 import cors from 'cors'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { Server } from 'socket.io'
 import { closeDatabase, pool, verifyDatabaseConnection } from './db.js'
 import {
@@ -16,6 +18,9 @@ import {
 
 const app = express()
 const server = http.createServer(app)
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const isProduction = process.env.NODE_ENV === 'production'
+const frontendDistPath = path.resolve(__dirname, '../dist')
 const allowedOrigins = ['http://localhost:5173', 'http://127.0.0.1:5173']
 const io = new Server(server, {
   cors: {
@@ -379,6 +384,19 @@ app.delete('/api/reactions', async (req, res) => {
     res.status(500).json({ success: false, error: error.message })
   }
 })
+
+if (isProduction) {
+  app.use(express.static(frontendDistPath))
+
+  // Vue Router uses history mode, so browser navigation must return the app shell.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' || req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) {
+      return next()
+    }
+
+    res.sendFile(path.join(frontendDistPath, 'index.html'))
+  })
+}
 
 io.on('connection', (socket) => {
   console.log(`[socket] connection socketId=${socket.id}`)

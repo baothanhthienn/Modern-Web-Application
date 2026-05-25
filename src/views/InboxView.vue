@@ -339,7 +339,7 @@ const activeConv = computed(() =>
 // Loads DM history from MySQL and falls back to demo messages.
 async function loadDMMessages(convId) {
   try {
-    const res = await fetch(`http://localhost:3000/api/messages/${encodeURIComponent(convId)}`)
+    const res = await fetch(`/api/messages/${encodeURIComponent(convId)}`)
     const data = await res.json()
     if (data.success) {
       dmMessages.value = data.messages

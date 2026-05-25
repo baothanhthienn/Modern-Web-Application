@@ -1,7 +1,8 @@
 import { ref, onUnmounted } from 'vue'
 import { io } from 'socket.io-client'
 
-const socket = io('http://localhost:3000', {
+const API_URL = '/api'
+const socket = io({
   autoConnect: true,
   reconnection: true,
   reconnectionAttempts: 5,
@@ -138,7 +139,7 @@ export function useSocket() {
       return
     }
 
-    fetch('http://localhost:3000/api/messages', {
+    fetch(`${API_URL}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -186,7 +187,7 @@ export function useSocket() {
       return
     }
 
-    fetch('http://localhost:3000/api/reactions', {
+    fetch(`${API_URL}/reactions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messageId, emoji, username, roomId }),

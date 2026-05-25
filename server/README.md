@@ -69,3 +69,19 @@ DB_QUEUE_LIMIT=0
 ```
 
 If direct MySQL access is blocked from your laptop, the Node backend and `npm run db:init` must run on a Swinburne/Mercury host that can reach the Feenix MariaDB server.
+
+## Production application server
+
+Build the Vue frontend, then run Express in production mode:
+
+```bash
+npm run build
+npm start
+```
+
+`npm run build` writes frontend assets to `dist/`. `npm start` runs the Express
+server, which serves those assets, supports Vue Router page refreshes, and
+handles `/api` and Socket.IO requests from the same origin.
+
+During development, `npm run dev:all` still runs Vite and Express separately;
+Vite proxies `/api` and Socket.IO traffic to the backend.

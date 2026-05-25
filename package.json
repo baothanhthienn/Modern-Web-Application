@@ -12,6 +12,7 @@
     "dev": "vite",
     "dev:all": "node scripts/dev.js",
     "server": "node server/server.js",
+    "start": "NODE_ENV=production node server/server.js",
     "db:init": "node server/init-db.js",
     "db:seed": "node server/seed-db.js",
     "build": "vite build",

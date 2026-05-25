@@ -239,7 +239,7 @@ async function selectRoom(room) {
 // Loads chat history from MySQL and falls back to demo messages.
 async function loadRoomMessages(roomId) {
   try {
-    const res = await fetch(`http://localhost:3000/api/messages/${encodeURIComponent(roomId)}`)
+    const res = await fetch(`/api/messages/${encodeURIComponent(roomId)}`)
     const data = await res.json()
     if (data.success) {
       messages.value = data.messages
