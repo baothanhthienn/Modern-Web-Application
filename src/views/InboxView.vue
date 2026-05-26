@@ -16,7 +16,7 @@
         <div v-else-if="conversationsError && !conversationApiPending" class="conversation-state error">{{ conversationsError }}</div>
         <div v-else-if="conversationApiPending && !conversations.length" class="conversation-state">
           <strong>Inbox sync is not available yet.</strong>
-          <small>Search for someone below to open an existing mutual conversation.</small>
+          <small>Once conversation sync is enabled, mutual-follow chats will appear here automatically.</small>
         </div>
         <div v-else-if="!conversations.length" class="conversation-state">
           <strong>No conversations yet</strong>
@@ -46,28 +46,13 @@
             <b v-if="conversation.unreadCount">{{ conversation.unreadCount }}</b>
           </button>
         </div>
-        <div class="new-chat">
-          <p>New message</p>
-        <form class="find-person" @submit.prevent="findPeople">
-          <input v-model="search" minlength="2" placeholder="Find a username" />
-          <button :disabled="search.trim().length < 2" aria-label="Search users"><i class="fa-solid fa-magnifying-glass"></i></button>
-        </form>
-        <p v-if="searchError" class="side-error">{{ searchError }}</p>
-        <div v-if="searched" class="contact-list">
-          <button v-for="user in users" :key="user.username" :class="{ active: activeUsername === user.username }" @click="openConversation(user.username)">
-            <span>{{ avatarLetter(user.username) }}</span>
-            <strong>u/{{ user.username }}</strong>
-          </button>
-          <div v-if="searched && !users.length" class="empty-contact">No users found.</div>
-        </div>
-        </div>
       </aside>
 
       <section class="direct-panel d-flex flex-column">
         <div v-if="!activeUsername" class="direct-empty">
           <i class="fa-regular fa-paper-plane"></i>
           <h2>Your conversations</h2>
-          <p>Choose a mutual follow from the left, or find someone to start chatting.</p>
+          <p>Choose a mutual follow from the left to open the conversation.</p>
         </div>
         <template v-else>
           <header class="direct-head d-flex align-items-center">
@@ -111,7 +96,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
 import MessageList from '../components/chat/MessageList.vue'
-import { followProfile, getDirectConversations, getDirectMessages, getProfile, searchContent } from '../services/api.js'
+import { followProfile, getDirectConversations, getDirectMessages, getProfile } from '../services/api.js'
 import { avatarLetter } from '../services/format.js'
 import { emitSocketEvent, getChatSocket } from '../services/realtime.js'
 import { useAuthUser } from '../services/auth.js'
@@ -120,10 +105,6 @@ const route = useRoute()
 const router = useRouter()
 const authUser = useAuthUser()
 const currentUser = computed(() => authUser.value?.username || '')
-const search = ref('')
-const searched = ref(false)
-const users = ref([])
-const searchError = ref('')
 const conversations = ref([])
 const conversationsLoading = ref(true)
 const conversationsError = ref('')
@@ -163,17 +144,6 @@ async function loadConversations() {
     }
   } finally {
     conversationsLoading.value = false
-  }
-}
-
-async function findPeople() {
-  searchError.value = ''
-  searched.value = true
-  try {
-    const data = await searchContent(search.value.trim())
-    users.value = data.users.filter((user) => user.username !== currentUser.value)
-  } catch (error) {
-    searchError.value = error.message
   }
 }
 
@@ -404,8 +374,6 @@ function handleConnectError(error) {
 function applyInitialContact() {
   const username = typeof route.query.with === 'string' ? route.query.with : ''
   if (username && username !== activeUsername.value) {
-    users.value = [{ username }]
-    search.value = username
     openConversation(username)
   }
 }
@@ -464,20 +432,7 @@ onBeforeUnmount(() => {
 .thread-copy small { display: block; margin-top: 4px; overflow: hidden; color: var(--reddit-text-meta); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .thread-copy small.unread { color: var(--reddit-text); font-weight: 600; }
 .thread-list b { min-width: 19px; height: 19px; padding: 2px 5px; border-radius: 12px; background: var(--reddit-orange); color: white; font-size: 11px; text-align: center; }
-.new-chat { flex-shrink: 0; padding-top: 12px; }
-.new-chat > p { margin: 0 16px 9px; color: var(--reddit-text-secondary); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
-.find-person { display: flex; gap: 7px; margin: 0 12px 12px; }
-.find-person input { flex: 1; min-width: 0; height: 42px; padding: 0 14px; border: 1px solid transparent; border-radius: 22px; background: var(--reddit-surface-inset); }
-.find-person input:focus { border-color: var(--reddit-blue); outline: none; }
-.find-person button { width: 42px; border-radius: 50%; background: var(--reddit-blue); color: white; }
-.find-person button:disabled { opacity: .45; }
-.side-error { padding: 0 16px 8px; color: #b42318; font-size: 12px; }
-.contact-list { overflow-y: auto; padding: 4px 8px; }
-.contact-list button { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 14px; }
-.contact-list button:hover, .contact-list .active { background: var(--reddit-surface-inset); }
-.contact-list span, .person-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: var(--reddit-blue); color: #fff; font-weight: 700; }
-.contact-list strong { font-size: 14px; }
-.empty-contact { padding: 38px 16px; color: var(--reddit-text-secondary); text-align: center; font-size: 13px; }
+.person-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; background: var(--reddit-blue); color: #fff; font-weight: 700; }
 .direct-panel { flex: 1; min-width: 0; }
 .direct-empty { flex: 1; display: grid; align-content: center; justify-items: center; gap: 10px; color: var(--reddit-text-secondary); text-align: center; }
 .direct-empty i { font-size: 36px; color: var(--reddit-text-muted); }

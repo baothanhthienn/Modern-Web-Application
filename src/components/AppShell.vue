@@ -137,6 +137,34 @@
       <slot />
     </main>
 
+    <div v-if="inboxToasts.length" class="toast-stack" aria-live="polite" aria-atomic="false">
+      <button
+        v-for="toast in inboxToasts"
+        :key="toast.id"
+        type="button"
+        class="inbox-toast"
+        @click="openInboxToast(toast)"
+      >
+        <div class="inbox-toast__head">
+          <div class="inbox-toast__title">
+            <span class="inbox-toast__dot"></span>
+            <strong>New message</strong>
+          </div>
+          <span class="inbox-toast__time">{{ toast.timeLabel }}</span>
+        </div>
+        <div class="inbox-toast__body">
+          <span class="inbox-toast__avatar">{{ avatarLetter(toast.username) }}</span>
+          <div class="inbox-toast__copy">
+            <strong>u/{{ toast.username }}</strong>
+            <p>{{ toast.preview }}</p>
+          </div>
+          <span class="inbox-toast__dismiss" @click.stop="dismissInboxToast(toast.id)">
+            <i class="fa-solid fa-xmark"></i>
+          </span>
+        </div>
+      </button>
+    </div>
+
   </div>
 </template>
 
@@ -146,6 +174,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearStoredAuth, logout, restoreAuthSession, useAuthUser } from '../services/auth.js'
 import { getCommunities, getNotifications } from '../services/api.js'
 import { getChatSocket } from '../services/realtime.js'
+import { avatarLetter } from '../services/format.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -156,6 +185,7 @@ async function signOut() {
   await logout().catch(() => {})
   unsubscribeNotifications()
   hasNotifications.value = false
+  inboxToasts.value = []
   currentUser.value = null
   router.push('/')
 }
@@ -185,7 +215,11 @@ function goSearch() {
 
 const hasNotifications = ref(false)
 const communities = ref([])
+const inboxToasts = ref([])
 let socket
+let toastIdCounter = 0
+const toastTimers = new Map()
+const seenDirectMessageIds = new Set()
 
 async function loadCommunities() {
   try {
@@ -210,13 +244,61 @@ function receiveNotification(payload) {
   if (!payload.notification.read) hasNotifications.value = true
 }
 
+function dismissInboxToast(id) {
+  inboxToasts.value = inboxToasts.value.filter((toast) => toast.id !== id)
+  const timer = toastTimers.get(id)
+  if (timer) {
+    clearTimeout(timer)
+    toastTimers.delete(id)
+  }
+}
+
+function openInboxToast(toast) {
+  dismissInboxToast(toast.id)
+  router.push({ path: '/inbox', query: { with: toast.username } })
+}
+
+function queueInboxToast(conversation) {
+  const message = conversation?.lastMessage
+  if (!message?.id || !conversation?.username) return
+  if (seenDirectMessageIds.has(String(message.id))) return
+  seenDirectMessageIds.add(String(message.id))
+
+  const id = ++toastIdCounter
+  inboxToasts.value = [
+    {
+      id,
+      username: conversation.username,
+      preview: message.body,
+      timeLabel: new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    },
+    ...inboxToasts.value,
+  ].slice(0, 3)
+
+  const timer = setTimeout(() => dismissInboxToast(id), 5000)
+  toastTimers.set(id, timer)
+}
+
+function receiveDirectConversation(payload) {
+  const conversation = payload?.conversation
+  if (!conversation?.lastMessage) return
+  if (conversation.lastMessage.sender === currentUser.value) return
+  if (!conversation.unreadCount) return
+  if (route.path === '/inbox') return
+  queueInboxToast(conversation)
+}
+
 function subscribeNotifications() {
   socket = getChatSocket()
   socket.on('notification:new', receiveNotification)
+  socket.on('direct:conversation', receiveDirectConversation)
 }
 
 function unsubscribeNotifications() {
   socket?.off('notification:new', receiveNotification)
+  socket?.off('direct:conversation', receiveDirectConversation)
+  for (const timer of toastTimers.values()) clearTimeout(timer)
+  toastTimers.clear()
 }
 
 onBeforeUnmount(() => {
@@ -531,6 +613,112 @@ onBeforeUnmount(() => {
   min-height: 100vh;
 }
 
+.toast-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 180;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 24px));
+}
+
+.inbox-toast {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--reddit-border-soft);
+  border-radius: 18px;
+  background: var(--reddit-white);
+  text-align: left;
+}
+
+.inbox-toast:hover {
+  background: var(--reddit-surface-inset);
+}
+
+.inbox-toast__head,
+.inbox-toast__body,
+.inbox-toast__title {
+  display: flex;
+  align-items: center;
+}
+
+.inbox-toast__head {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.inbox-toast__title {
+  gap: 8px;
+  color: var(--reddit-text);
+  font-size: 13px;
+}
+
+.inbox-toast__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--reddit-orange);
+}
+
+.inbox-toast__time {
+  color: var(--reddit-text-meta);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.inbox-toast__body {
+  gap: 10px;
+}
+
+.inbox-toast__avatar {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--reddit-blue);
+  color: white;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.inbox-toast__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.inbox-toast__copy strong {
+  display: block;
+  font-size: 13px;
+}
+
+.inbox-toast__copy p {
+  margin: 3px 0 0;
+  overflow: hidden;
+  color: var(--reddit-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-toast__dismiss {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  color: var(--reddit-text-meta);
+}
+
+.inbox-toast__dismiss:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--reddit-text);
+}
+
 /* =============================================
    RESPONSIVE
    ============================================= */
@@ -723,5 +911,11 @@ onBeforeUnmount(() => {
   .action-label, .create-post-btn span { display: none; }
   .nav-action-label, .create-post-btn { width: 40px; padding: 0; }
   .signed-in-name { display: none; }
+  .toast-stack {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+    width: auto;
+  }
 }
 </style>
