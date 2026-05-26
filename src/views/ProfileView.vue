@@ -50,7 +50,7 @@
           </template>
           <div v-else class="empty">
             <i class="fa-regular fa-folder-open"></i>
-            <h2>No {{ activeTab === 'overview' ? 'activity' : activeTab }} to show</h2>
+            <h2>No {{ activeTab }} to show</h2>
             <p>{{ activeTab === 'saved' ? 'Saved posts are visible only to their owner.' : 'No public contributions are available here yet.' }}</p>
           </div>
         </main>
@@ -101,7 +101,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import PostCard from '../components/PostCard.vue'
-import { followProfile, getProfile, getProfileActivity, getSavedItems, unfollowProfile, updateUsername } from '../services/api.js'
+import { followProfile, getPost, getProfile, getProfileActivity, getSavedItems, unfollowProfile, updateUsername } from '../services/api.js'
 import { avatarLetter, formatCount, formatDate, formatRelativeTime } from '../services/format.js'
 import { saveAuthSession, useAuthUser } from '../services/auth.js'
 
@@ -110,7 +110,7 @@ const router = useRouter()
 const authUser = useAuthUser()
 const profile = ref(null)
 const viewer = ref({})
-const activeTab = ref('overview')
+const activeTab = ref('posts')
 const items = ref([])
 const nextCursor = ref(null)
 const loadingProfile = ref(true)
@@ -123,7 +123,6 @@ const newUsername = ref('')
 const renaming = ref(false)
 const renameError = ref('')
 const tabs = [
-  { value: 'overview', label: 'Overview' },
   { value: 'posts', label: 'Posts' },
   { value: 'comments', label: 'Comments' },
   { value: 'saved', label: 'Saved' },
@@ -132,10 +131,63 @@ const visibleTabs = computed(() => viewer.value.isSelf ? tabs : tabs.filter((tab
 const postItems = computed(() => items.value.filter((item) => !item.type || item.type === 'post'))
 const commentItems = computed(() => items.value.filter((item) => item.type === 'comment'))
 
+function activityPostId(value) {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const match = value.match(/^post_(\d+)$/)
+    if (match) return Number(match[1])
+    const numeric = Number(value)
+    if (Number.isFinite(numeric)) return numeric
+  }
+  return null
+}
+
+function normalizeActivityPost(item, username) {
+  const community = typeof item.community === 'string'
+    ? item.community
+    : item.community?.name || ''
+
+  return {
+    ...item,
+    id: activityPostId(item.id) ?? item.id,
+    type: 'post',
+    community,
+    communityColor: item.communityColor || null,
+    author: typeof item.author === 'string' ? item.author : username,
+    createdAt: item.createdAt,
+    title: item.title,
+    text: item.text ?? item.body ?? '',
+    image: item.image ?? null,
+    link: item.link ?? null,
+    linkDomain: item.linkDomain ?? null,
+    votes: Number(item.votes ?? item.score ?? 0),
+    comments: Number(item.comments ?? item.commentCount ?? 0),
+    reactions: Number(item.reactions ?? 0),
+    userVote: Number(item.userVote ?? 0),
+    saved: Boolean(item.saved),
+  }
+}
+
+async function hydrateActivityItems(activityItems, username) {
+  return Promise.all(activityItems.map(async (item) => {
+    if (item.type === 'comment') return item
+
+    const postId = activityPostId(item.id)
+    if (!postId) return normalizeActivityPost(item, username)
+
+    try {
+      const { post } = await getPost(postId)
+      return post
+    } catch {
+      return normalizeActivityPost(item, username)
+    }
+  }))
+}
+
 async function loadProfile() {
   loadingProfile.value = true
   profileError.value = ''
-  activeTab.value = 'overview'
+  activeTab.value = 'posts'
   try {
     const data = await getProfile(route.params.username)
     profile.value = data.profile
@@ -156,7 +208,8 @@ async function loadActivity(cursor) {
     const data = activeTab.value === 'saved'
       ? await getSavedItems({ cursor })
       : await getProfileActivity(profile.value.username, { type: activeTab.value, cursor })
-    items.value = cursor ? [...items.value, ...data.items] : data.items
+    const nextItems = await hydrateActivityItems(data.items, profile.value.username)
+    items.value = cursor ? [...items.value, ...nextItems] : nextItems
     nextCursor.value = data.nextCursor
   } catch (error) {
     activityError.value = error.message

@@ -20,7 +20,7 @@
             <router-link
               v-for="notification in filteredNotifications"
               :key="notification.id"
-              :to="notification.postId ? `/post/${notification.postId}` : '/'"
+              :to="notificationLink(notification)"
               class="notification"
               :class="{ unread: !notification.read }"
             >
@@ -28,8 +28,9 @@
               <div class="notification-copy">
                 <strong>{{ notification.message }}</strong>
                 <p>
-                  <span v-if="notification.actor">u/{{ notification.actor }}</span>
+                  <span v-if="notificationActor(notification)">u/{{ notificationActor(notification) }}</span>
                   <span v-if="notification.postId">Post #{{ notification.postId }}</span>
+                  <span v-else-if="notificationTarget(notification)">u/{{ notificationTarget(notification) }}</span>
                   <span>{{ formatRelativeTime(notification.createdAt) }}</span>
                 </p>
               </div>
@@ -65,7 +66,30 @@ const filteredNotifications = computed(() => filter.value === 'unread'
 function iconFor(type) {
   return {
     post_created: 'fa-solid fa-pen-to-square',
+    mutual_follow: 'fa-solid fa-user-group',
+    follow_matched: 'fa-solid fa-user-group',
+    chat_unlocked: 'fa-solid fa-user-group',
   }[type] || 'fa-regular fa-bell'
+}
+
+function notificationActor(notification) {
+  return notification.actor || notification.actorUsername || null
+}
+
+function notificationTarget(notification) {
+  return notification.targetUsername || notification.username || null
+}
+
+function notificationLink(notification) {
+  if (notification.postId) return `/post/${notification.postId}`
+
+  const username = notificationTarget(notification) || notificationActor(notification)
+  if (['mutual_follow', 'follow_matched', 'chat_unlocked'].includes(notification.type) && username) {
+    return { path: '/inbox', query: { with: username } }
+  }
+
+  if (username) return `/profile/${username}`
+  return '/'
 }
 
 async function loadNotifications(cursor) {
