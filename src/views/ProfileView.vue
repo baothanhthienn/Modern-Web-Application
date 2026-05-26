@@ -34,6 +34,22 @@
           <div v-if="loadingActivity" class="profile-state">Loading activity...</div>
           <div v-else-if="activityError" class="profile-state profile-state--error">{{ activityError }}</div>
           <template v-else-if="items.length">
+            <div v-if="showPostManagement" class="post-tools">
+              <div class="post-tools__label">
+                <span class="post-tools__dot"></span>
+                <strong>Post tools</strong>
+              </div>
+              <div class="post-tools__actions">
+                <button class="post-tool-button" @click="openEditPost">
+                  <i class="fa-regular fa-pen-to-square"></i>
+                  Edit
+                </button>
+                <button class="post-tool-button post-tool-button--danger" :disabled="deletingPost" @click="removeCurrentPost">
+                  <i class="fa-regular fa-trash-can"></i>
+                  {{ deletingPost ? 'Deleting...' : 'Delete' }}
+                </button>
+              </div>
+            </div>
             <PostCard
               v-for="item in visiblePostItems"
               :key="item.id"
@@ -109,6 +125,19 @@
         </div>
       </form>
     </div>
+
+    <PostComposerModal
+      :open="editPostOpen"
+      heading="Edit post"
+      submit-label="Save changes"
+      loading-label="Saving..."
+      :submitting="savingPost"
+      :error="editPostError"
+      :communities="editableCommunities"
+      :initial-draft="editPostDraft"
+      @close="editPostOpen = false"
+      @submit="submitEditPost"
+    />
   </AppShell>
 </template>
 
@@ -116,9 +145,10 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
+import PostComposerModal from '../components/PostComposerModal.vue'
 import PostCard from '../components/PostCard.vue'
 import { teamPostsByUsername, teamProfilesByUsername } from '../data/teamProfiles.js'
-import { followProfile, getPost, getProfile, getProfileActivity, getSavedItems, unfollowProfile, updateUsername } from '../services/api.js'
+import { deletePost, followProfile, getCommunities, getPost, getProfile, getProfileActivity, getSavedItems, unfollowProfile, updatePost, updateUsername } from '../services/api.js'
 import { avatarLetter, formatCount, formatDate, formatRelativeTime } from '../services/format.js'
 import { saveAuthSession, useAuthUser } from '../services/auth.js'
 
@@ -142,6 +172,12 @@ const editing = ref(false)
 const newUsername = ref('')
 const renaming = ref(false)
 const renameError = ref('')
+const editPostOpen = ref(false)
+const editPostError = ref('')
+const savingPost = ref(false)
+const deletingPost = ref(false)
+const editableCommunities = ref([])
+const editPostDraft = ref({ community: '', title: '', image: '', description: '' })
 const tabs = [
   { value: 'posts', label: 'Posts' },
   { value: 'comments', label: 'Comments' },
@@ -151,6 +187,18 @@ const localProfile = computed(() => teamProfilesByUsername[String(route.params.u
 const visibleTabs = computed(() => viewer.value.isSelf ? tabs : tabs.filter((tab) => tab.value !== 'saved'))
 const postItems = computed(() => items.value.filter((item) => !item.type || item.type === 'post'))
 const commentItems = computed(() => items.value.filter((item) => item.type === 'comment'))
+const activeManagedPost = computed(() => activeTab.value === 'posts' ? visiblePostItems.value[0] || null : null)
+const canManageActivePost = computed(() => {
+  const sessionUsername = String(authUser.value?.username || '').trim().toLowerCase()
+  const postAuthor = String(activeManagedPost.value?.author || '').trim().toLowerCase()
+  return Boolean(sessionUsername && postAuthor && sessionUsername === postAuthor)
+})
+const showPostManagement = computed(() => Boolean(
+  canManageActivePost.value
+  && !isLocalProfile.value
+  && activeManagedPost.value
+  && !activeManagedPost.value.localOnly,
+))
 const visiblePostItems = computed(() => {
   if (activeTab.value !== 'posts') return postItems.value
   const currentPost = postItems.value[currentPostIndex.value]
@@ -223,6 +271,7 @@ async function loadProfile() {
   actionError.value = ''
   activeTab.value = 'posts'
   currentPostIndex.value = 0
+  editPostOpen.value = false
   try {
     const data = await getProfile(route.params.username)
     isLocalProfile.value = false
@@ -340,6 +389,65 @@ async function rename() {
   }
 }
 
+async function ensureEditableCommunities() {
+  if (editableCommunities.value.length) return
+  const data = await getCommunities()
+  editableCommunities.value = data.communities
+}
+
+async function openEditPost() {
+  if (!activeManagedPost.value) return
+  editPostError.value = ''
+  await ensureEditableCommunities().catch((error) => {
+    editPostError.value = error.message
+  })
+  editPostDraft.value = {
+    community: activeManagedPost.value.community || '',
+    title: activeManagedPost.value.title || '',
+    image: activeManagedPost.value.image || '',
+    description: activeManagedPost.value.text || '',
+  }
+  editPostOpen.value = true
+}
+
+async function submitEditPost(nextDraft) {
+  if (!activeManagedPost.value) return
+  savingPost.value = true
+  editPostError.value = ''
+  try {
+    const payload = {
+      community: nextDraft.community,
+      title: nextDraft.title,
+      image: nextDraft.image || null,
+      description: nextDraft.description || null,
+    }
+    const { post } = await updatePost(activeManagedPost.value.id, payload)
+    replaceItem(post)
+    editPostOpen.value = false
+  } catch (error) {
+    editPostError.value = error.message
+  } finally {
+    savingPost.value = false
+  }
+}
+
+async function removeCurrentPost() {
+  if (!activeManagedPost.value || deletingPost.value) return
+  deletingPost.value = true
+  actionError.value = ''
+  try {
+    await deletePost(activeManagedPost.value.id)
+    const removedId = activeManagedPost.value.id
+    items.value = items.value.filter((item) => String(item.id) !== String(removedId))
+    if (currentPostIndex.value >= postItems.value.length && currentPostIndex.value > 0) currentPostIndex.value -= 1
+    if (!postItems.value.length && nextCursor.value) await loadActivity(nextCursor.value)
+  } catch (error) {
+    actionError.value = error.message
+  } finally {
+    deletingPost.value = false
+  }
+}
+
 watch(() => route.params.username, loadProfile, { immediate: true })
 </script>
 
@@ -365,6 +473,38 @@ watch(() => route.params.username, loadProfile, { immediate: true })
 .tabs .selected::after { content: ''; height: 3px; position: absolute; bottom: 0; left: 16px; right: 16px; border-radius: 3px; background: var(--reddit-blue); }
 .columns { display: grid; grid-template-columns: minmax(0, 700px) 296px; justify-content: center; gap: 24px; padding-top: 16px; }
 .activity .profile-state { min-height: 220px; }
+.post-tools {
+  margin: 0 16px 10px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border: 1px solid var(--reddit-border-soft);
+  border-radius: 16px;
+  background: var(--reddit-white);
+}
+.post-tools__label,
+.post-tools__actions,
+.post-tool-button { display: flex; align-items: center; }
+.post-tools__label { gap: 8px; color: var(--reddit-text); font-size: 13px; }
+.post-tools__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--reddit-blue); }
+.post-tools__actions { gap: 8px; }
+.post-tool-button {
+  height: 36px;
+  gap: 8px;
+  padding: 0 14px;
+  border: 1px solid var(--reddit-border-emphasis);
+  border-radius: 999px;
+  background: var(--reddit-white);
+  color: var(--reddit-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.post-tool-button:hover { background: var(--reddit-surface-inset); }
+.post-tool-button:disabled { opacity: .5; cursor: default; }
+.post-tool-button--danger { color: #b42318; border-color: rgba(180, 35, 24, 0.18); }
 .comment { margin: 0 16px; padding: 16px 0; border-bottom: 1px solid var(--reddit-border-soft); }
 .comment p, .comment small { color: var(--reddit-text-meta); font-size: 12px; }
 .comment h2 { margin: 8px 0; font-size: 15px; }
@@ -451,5 +591,5 @@ dd { margin: 5px 0 0; font-family: var(--font-mono); font-size: 13px; font-weigh
 .username-dialog p { margin: 9px 0 16px; color: var(--reddit-text-secondary); font-size: 13px; }
 .username-dialog input { width: 100%; height: 44px; padding: 0 13px; border: 1px solid var(--reddit-border); border-radius: 9px; background: var(--reddit-surface-inset); }
 .username-dialog div { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
-@media (max-width: 860px) { .profile-page { padding: 8px 0 36px; } .banner { border-radius: 0; } .identity { padding: 0 16px 14px; flex-wrap: wrap; } .identity-actions { width: 100%; margin-left: 0; } .tabs { overflow-x: auto; } .columns { display: flex; flex-direction: column-reverse; gap: 8px; } .rail { padding: 0 16px; } .pager-shell { grid-template-columns: 1fr; } .pager-control, .pager-control--next { width: 100%; justify-content: center; } }
+@media (max-width: 860px) { .profile-page { padding: 8px 0 36px; } .banner { border-radius: 0; } .identity { padding: 0 16px 14px; flex-wrap: wrap; } .identity-actions { width: 100%; margin-left: 0; } .tabs { overflow-x: auto; } .columns { display: flex; flex-direction: column-reverse; gap: 8px; } .rail { padding: 0 16px; } .pager-shell { grid-template-columns: 1fr; } .pager-control, .pager-control--next { width: 100%; justify-content: center; } .post-tools { margin-inline: 8px; } .post-tools__actions { width: 100%; } .post-tool-button { flex: 1; justify-content: center; } }
 </style>

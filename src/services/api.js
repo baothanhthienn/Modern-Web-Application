@@ -69,6 +69,14 @@ export function getPost(postId) {
   return apiRequest(`/posts/${encodeURIComponent(postId)}`)
 }
 
+export function updatePost(postId, fields) {
+  return jsonRequest(`/posts/${encodeURIComponent(postId)}`, 'PATCH', fields)
+}
+
+export function deletePost(postId) {
+  return apiRequest(`/posts/${encodeURIComponent(postId)}`, { method: 'DELETE' })
+}
+
 export function votePost(postId, vote) {
   return jsonRequest(`/posts/${encodeURIComponent(postId)}/vote`, 'PUT', { vote })
 }

@@ -3,7 +3,7 @@
     <div class="home">
       <main class="stream">
         <section v-if="currentUser" class="composer">
-          <button class="compose-trigger" @click="composerOpen = true">
+          <button class="compose-trigger" @click="openComposer">
             <i class="fa-solid fa-plus"></i>
             Create a post
           </button>
@@ -59,38 +59,18 @@
       </aside>
     </div>
 
-    <div v-if="composerOpen" class="modal-backdrop" @click.self="composerOpen = false">
-      <form class="post-modal" @submit.prevent="publishPost">
-        <header>
-          <h2>Create a post</h2>
-          <button type="button" aria-label="Close" @click="composerOpen = false"><i class="fa-solid fa-xmark"></i></button>
-        </header>
-        <label>
-          Community
-          <select v-model="draft.community" required>
-            <option value="" disabled>Choose a community</option>
-            <option v-for="community in communities" :key="community.name" :value="community.name">r/{{ community.name }}</option>
-          </select>
-        </label>
-        <label>
-          Title
-          <input v-model.trim="draft.title" maxlength="300" required placeholder="Title" />
-        </label>
-        <label>
-          Image URL
-          <input v-model.trim="draft.image" type="url" placeholder="https://..." />
-        </label>
-        <label>
-          Body
-          <textarea v-model.trim="draft.description" rows="5" placeholder="What do you want to share?"></textarea>
-        </label>
-        <p v-if="composeError" class="compose-error">{{ composeError }}</p>
-        <footer>
-          <button type="button" class="cancel" @click="composerOpen = false">Cancel</button>
-          <button type="submit" class="publish" :disabled="publishing">{{ publishing ? 'Posting...' : 'Post' }}</button>
-        </footer>
-      </form>
-    </div>
+    <PostComposerModal
+      :open="composerOpen"
+      heading="Create a post"
+      submit-label="Post"
+      loading-label="Posting..."
+      :submitting="publishing"
+      :error="composeError"
+      :communities="communities"
+      :initial-draft="draft"
+      @close="composerOpen = false"
+      @submit="publishPost"
+    />
   </AppShell>
 </template>
 
@@ -98,6 +78,7 @@
 import { reactive, ref, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
+import PostComposerModal from '../components/PostComposerModal.vue'
 import PostCard from '../components/PostCard.vue'
 import { createPost, getCommunities, getPosts, joinCommunity, leaveCommunity } from '../services/api.js'
 import { formatCount } from '../services/format.js'
@@ -126,6 +107,16 @@ const composerOpen = ref(false)
 const publishing = ref(false)
 const composeError = ref('')
 const draft = reactive({ community: '', title: '', image: '', description: '' })
+
+function resetDraft() {
+  Object.assign(draft, { community: '', title: '', image: '', description: '' })
+}
+
+function openComposer() {
+  composeError.value = ''
+  resetDraft()
+  composerOpen.value = true
+}
 
 async function loadPosts(cursor) {
   error.value = ''
@@ -173,13 +164,13 @@ async function toggleJoin(community) {
   }
 }
 
-async function publishPost() {
+async function publishPost(nextDraft) {
   composeError.value = ''
   publishing.value = true
   try {
-    await createPost(draft)
+    await createPost(nextDraft)
     composerOpen.value = false
-    Object.assign(draft, { community: '', title: '', image: '', description: '' })
+    resetDraft()
     await loadPosts()
   } catch (actionError) {
     composeError.value = actionError.message
@@ -191,12 +182,12 @@ async function publishPost() {
 onMounted(() => {
   loadPosts()
   loadCommunities()
-  if (route.query.compose === 'true' && currentUser.value) composerOpen.value = true
+  if (route.query.compose === 'true' && currentUser.value) openComposer()
 })
 
 watch(() => route.query.compose, (value) => {
   if (value === 'true' && currentUser.value) {
-    composerOpen.value = true
+    openComposer()
     router.replace({ path: '/' })
   }
 })
@@ -211,7 +202,7 @@ watch(() => route.query.sort, (sort) => {
 
 watch(currentUser, (user) => {
   if (user && route.query.compose === 'true') {
-    composerOpen.value = true
+    openComposer()
     router.replace({ path: '/' })
   }
 })
@@ -246,18 +237,5 @@ watch(currentUser, (user) => {
 .join:not(.joined) { background: var(--reddit-blue); border-color: var(--reddit-blue); color: #fff; }
 .rail-card p { margin-bottom: 14px; line-height: 1.5; }
 .rail-link { color: var(--reddit-blue); font-size: 13px; font-weight: 600; text-decoration: none; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; background: rgba(15, 26, 28, .52); padding: 20px; }
-.post-modal { width: min(560px, 100%); padding: 20px; border-radius: 18px; background: var(--reddit-white); display: flex; flex-direction: column; gap: 14px; }
-.post-modal header, .post-modal footer { display: flex; align-items: center; justify-content: space-between; }
-.post-modal header h2 { font-size: 19px; }
-.post-modal header button { width: 36px; height: 36px; border-radius: 50%; }
-.post-modal label { display: flex; flex-direction: column; gap: 7px; color: var(--reddit-text-secondary); font-size: 13px; font-weight: 600; }
-.post-modal input, .post-modal select, .post-modal textarea { width: 100%; padding: 11px 13px; border: 1px solid var(--reddit-border); border-radius: 10px; background: var(--reddit-surface-inset); font-size: 14px; resize: vertical; }
-.post-modal input:focus, .post-modal textarea:focus, .post-modal select:focus { border-color: var(--reddit-blue); outline: none; }
-.compose-error { color: #b42318; font-size: 13px; }
-.post-modal footer { justify-content: flex-end; gap: 10px; padding-top: 4px; }
-.post-modal footer button { height: 40px; padding: 0 20px; border-radius: 21px; font-weight: 700; }
-.cancel { border: 1px solid var(--reddit-border-emphasis); }
-.publish { background: var(--reddit-orange); color: #fff; }
 @media (max-width: 850px) { .home { padding: 10px 8px; } .rail { display: none; } .sort-row { overflow-x: auto; } }
 </style>
