@@ -129,6 +129,10 @@ export function getDirectMessages(username, { limit = 20, cursor } = {}) {
   return apiRequest(`/chats/users/${encodeURIComponent(username)}/messages${queryString({ limit, cursor })}`)
 }
 
+export function getDirectConversations({ limit = 30, cursor } = {}) {
+  return apiRequest(`/chats/conversations${queryString({ limit, cursor })}`)
+}
+
 export function updateUsername(username) {
   return jsonRequest('/me/username', 'PATCH', { username })
 }

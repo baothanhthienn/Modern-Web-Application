@@ -4,27 +4,70 @@
       <aside class="contacts">
         <header>
           <h1><i class="fa-regular fa-envelope"></i> Messages</h1>
-          <p>Direct conversations</p>
+          <p>Mutual follows can chat here</p>
         </header>
+        <div class="contacts-label d-flex align-items-center">
+          <strong>Conversations</strong>
+          <button class="refresh" type="button" :disabled="conversationsLoading" @click="loadConversations">
+            <i class="fa-solid fa-rotate" :class="{ 'fa-spin': conversationsLoading }"></i>
+          </button>
+        </div>
+        <div v-if="conversationsLoading" class="conversation-state">Loading messages...</div>
+        <div v-else-if="conversationsError && !conversationApiPending" class="conversation-state error">{{ conversationsError }}</div>
+        <div v-else-if="conversationApiPending && !conversations.length" class="conversation-state">
+          <strong>Inbox sync is not available yet.</strong>
+          <small>Search for someone below to open an existing mutual conversation.</small>
+        </div>
+        <div v-else-if="!conversations.length" class="conversation-state">
+          <strong>No conversations yet</strong>
+          <small>When you and another user follow each other, the chat appears here.</small>
+        </div>
+        <div v-else class="thread-list">
+          <button
+            v-for="conversation in conversations"
+            :key="conversation.username"
+            :class="{ active: activeUsername === conversation.username }"
+            @click="openConversation(conversation.username)"
+          >
+            <span class="thread-avatar">
+              <img v-if="conversation.avatarUrl" :src="conversation.avatarUrl" :alt="`u/${conversation.username}`" />
+              <template v-else>{{ avatarLetter(conversation.username) }}</template>
+            </span>
+            <span class="thread-copy">
+              <span class="thread-line">
+                <strong>{{ conversation.displayName || `u/${conversation.username}` }}</strong>
+                <time v-if="conversation.lastMessage">{{ formatThreadTime(conversation.lastMessage.createdAt) }}</time>
+              </span>
+              <small v-if="conversation.lastMessage" :class="{ unread: conversation.unreadCount }">
+                <template v-if="conversation.lastMessage.sender === currentUser">You: </template>{{ conversation.lastMessage.body }}
+              </small>
+              <small v-else>Start the conversation</small>
+            </span>
+            <b v-if="conversation.unreadCount">{{ conversation.unreadCount }}</b>
+          </button>
+        </div>
+        <div class="new-chat">
+          <p>New message</p>
         <form class="find-person" @submit.prevent="findPeople">
           <input v-model="search" minlength="2" placeholder="Find a username" />
-          <button :disabled="search.trim().length < 2"><i class="fa-solid fa-magnifying-glass"></i></button>
+          <button :disabled="search.trim().length < 2" aria-label="Search users"><i class="fa-solid fa-magnifying-glass"></i></button>
         </form>
         <p v-if="searchError" class="side-error">{{ searchError }}</p>
-        <div class="contact-list">
+        <div v-if="searched" class="contact-list">
           <button v-for="user in users" :key="user.username" :class="{ active: activeUsername === user.username }" @click="openConversation(user.username)">
             <span>{{ avatarLetter(user.username) }}</span>
             <strong>u/{{ user.username }}</strong>
           </button>
           <div v-if="searched && !users.length" class="empty-contact">No users found.</div>
         </div>
+        </div>
       </aside>
 
       <section class="direct-panel d-flex flex-column">
         <div v-if="!activeUsername" class="direct-empty">
           <i class="fa-regular fa-paper-plane"></i>
-          <h2>Direct messages</h2>
-          <p>Search for a redditor to open an authorized conversation.</p>
+          <h2>Your conversations</h2>
+          <p>Choose a mutual follow from the left, or find someone to start chatting.</p>
         </div>
         <template v-else>
           <header class="direct-head d-flex align-items-center">
@@ -42,12 +85,18 @@
           </div>
           <div v-if="historyLoading" class="direct-empty">Loading messages...</div>
           <template v-else-if="!historyError">
-            <MessageList :messages="messages" :current-user="currentUser" />
+            <MessageList
+              :messages="messages"
+              :current-user="currentUser"
+              :typing-users="typingUsers"
+              @reaction="handleReaction"
+            />
             <MessageInput
               :disabled="!canSend"
               :disabled-message="messageDisabledReason"
               :room-name="`u/${activeUsername}`"
               @send="sendMessage"
+              @typing-change="setTyping"
             />
           </template>
         </template>
@@ -62,7 +111,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import MessageInput from '../components/chat/MessageInput.vue'
 import MessageList from '../components/chat/MessageList.vue'
-import { followProfile, getDirectMessages, getProfile, searchContent } from '../services/api.js'
+import { followProfile, getDirectConversations, getDirectMessages, getProfile, searchContent } from '../services/api.js'
 import { avatarLetter } from '../services/format.js'
 import { emitSocketEvent, getChatSocket } from '../services/realtime.js'
 import { useAuthUser } from '../services/auth.js'
@@ -75,6 +124,10 @@ const search = ref('')
 const searched = ref(false)
 const users = ref([])
 const searchError = ref('')
+const conversations = ref([])
+const conversationsLoading = ref(true)
+const conversationsError = ref('')
+const conversationApiPending = ref(false)
 const activeUsername = ref('')
 const profileViewer = ref(null)
 const messages = ref([])
@@ -85,6 +138,7 @@ const connected = ref(false)
 const directJoined = ref(false)
 const joinedUsername = ref('')
 const connectionError = ref('')
+const typingUsers = ref([])
 let socket
 const canSend = computed(() => Boolean(activeUsername.value && connected.value && directJoined.value && !historyError.value))
 const messageDisabledReason = computed(() => {
@@ -92,6 +146,25 @@ const messageDisabledReason = computed(() => {
   if (!directJoined.value) return 'Opening this direct conversation...'
   return ''
 })
+
+async function loadConversations() {
+  conversationsLoading.value = true
+  conversationsError.value = ''
+  conversationApiPending.value = false
+  try {
+    const data = await getDirectConversations()
+    conversations.value = data.conversations
+  } catch (error) {
+    conversations.value = []
+    if (error.status === 404) {
+      conversationApiPending.value = true
+    } else {
+      conversationsError.value = error.message
+    }
+  } finally {
+    conversationsLoading.value = false
+  }
+}
 
 async function findPeople() {
   searchError.value = ''
@@ -116,8 +189,11 @@ async function openConversation(username) {
     const [history, profile] = await Promise.all([getDirectMessages(username), getProfile(username)])
     if (activeUsername.value !== username) return
     messages.value = history.messages
+    typingUsers.value = []
     profileViewer.value = profile.viewer
+    upsertConversation(username, history.messages.at(-1))
     await joinActiveDirect()
+    await markActiveConversationRead()
   } catch (error) {
     if (activeUsername.value !== username) return
     messages.value = []
@@ -139,6 +215,7 @@ async function followUser() {
     await followProfile(activeUsername.value)
     profileViewer.value.isFollowing = true
     await openConversation(activeUsername.value)
+    await loadConversations()
   } catch (error) {
     historyError.value = error.message
   }
@@ -165,6 +242,7 @@ async function leaveActiveDirect() {
   const username = joinedUsername.value
   joinedUsername.value = ''
   directJoined.value = false
+  typingUsers.value = []
   if (!username || !socket?.connected) return
   try {
     const response = await emitSocketEvent(socket, 'direct:leave', { username })
@@ -181,6 +259,7 @@ async function sendMessage(body) {
     const response = await emitSocketEvent(socket, 'direct:message:send', { username: activeUsername.value, body })
     if (!response?.success) throw new Error(response?.error || 'Message could not be sent.')
     appendMessage(response.message)
+    upsertConversation(activeUsername.value, response.message)
   } catch (error) {
     historyError.value = error.message
   }
@@ -193,7 +272,112 @@ function appendMessage(message) {
 }
 
 function receiveMessage(payload) {
-  if (payload.with === activeUsername.value) appendMessage(payload.message)
+  upsertConversation(payload.with, payload.message, payload.with !== activeUsername.value)
+  if (payload.with === activeUsername.value) {
+    appendMessage(payload.message)
+    markActiveConversationRead()
+  }
+}
+
+function receiveConversation(payload) {
+  const conversation = payload?.conversation
+  if (!conversation?.username) return
+  const index = conversations.value.findIndex((entry) => entry.username === conversation.username)
+  const existing = index >= 0 ? conversations.value[index] : {}
+  if (index >= 0) conversations.value.splice(index, 1)
+  conversations.value.unshift({ ...existing, ...conversation })
+  conversationApiPending.value = false
+}
+
+async function markActiveConversationRead() {
+  if (!socket || !connected.value || !activeUsername.value || !messages.value.length) return
+  try {
+    const response = await emitSocketEvent(socket, 'direct:read', { username: activeUsername.value })
+    if (!response?.success) return
+    applyDirectRead(response)
+  } catch {
+    // Read state is best effort.
+  }
+}
+
+function applyDirectRead(payload) {
+  if (payload.with !== activeUsername.value) return
+  const ids = new Set((payload.messageIds || []).map(String))
+  messages.value = messages.value.map((message) => (
+    ids.has(String(message.id))
+      ? { ...message, seen: true, seenAt: payload.readAt }
+      : message
+  ))
+  const conversation = conversations.value.find((entry) => entry.username === payload.with)
+  if (conversation) conversation.unreadCount = 0
+}
+
+function applyDirectReaction(payload) {
+  if (payload.with !== activeUsername.value) return
+  messages.value = messages.value.map((message) => (
+    String(message.id) === String(payload.messageId)
+      ? {
+          ...message,
+          reactions: payload.reactions,
+          viewerReaction: payload.actor === currentUser.value ? payload.actorReaction : message.viewerReaction,
+        }
+      : message
+  ))
+}
+
+function receiveTyping(payload) {
+  if (payload.with !== activeUsername.value || payload.username === currentUser.value) return
+  typingUsers.value = payload.isTyping ? [payload.username] : []
+}
+
+async function setTyping(isTyping) {
+  if (!canSend.value) return
+  try {
+    await emitSocketEvent(socket, 'direct:typing', { username: activeUsername.value, isTyping })
+  } catch {
+    // Typing is transient.
+  }
+}
+
+async function handleReaction({ messageId, reaction }) {
+  if (!canSend.value) return
+  try {
+    const response = reaction
+      ? await emitSocketEvent(socket, 'direct:reaction:set', { username: activeUsername.value, messageId, reaction })
+      : await emitSocketEvent(socket, 'direct:reaction:remove', { username: activeUsername.value, messageId })
+    if (!response?.success) throw new Error(response?.error || 'Could not update reaction.')
+    applyDirectReaction({
+      with: response.with,
+      messageId: response.messageId,
+      reactions: response.reactions,
+      actor: currentUser.value,
+      actorReaction: response.viewerReaction ?? null,
+    })
+  } catch (error) {
+    historyError.value = error.message
+  }
+}
+
+function upsertConversation(username, lastMessage, incrementUnread = false) {
+  const index = conversations.value.findIndex((conversation) => conversation.username === username)
+  const existing = index >= 0 ? conversations.value[index] : { username, unreadCount: 0 }
+  const updated = {
+    ...existing,
+    lastMessage: lastMessage || existing.lastMessage || null,
+    unreadCount: incrementUnread ? (existing.unreadCount || 0) + 1 : 0,
+  }
+  if (index >= 0) conversations.value.splice(index, 1)
+  conversations.value.unshift(updated)
+}
+
+function formatThreadTime(value) {
+  if (!value) return ''
+  const date = new Date(value)
+  const today = new Date()
+  if (date.toDateString() === today.toDateString()) {
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  }
+  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
 function handleConnect() {
@@ -206,6 +390,7 @@ function handleDisconnect() {
   connected.value = false
   directJoined.value = false
   joinedUsername.value = ''
+  typingUsers.value = []
 }
 
 function handleConnectError(error) {
@@ -231,13 +416,22 @@ onMounted(() => {
   socket.on('disconnect', handleDisconnect)
   socket.on('connect_error', handleConnectError)
   socket.on('direct:message', receiveMessage)
+  socket.on('direct:conversation', receiveConversation)
+  socket.on('direct:typing', receiveTyping)
+  socket.on('direct:read', applyDirectRead)
+  socket.on('direct:reaction', applyDirectReaction)
   connected.value = socket.connected
+  loadConversations()
   applyInitialContact()
 })
 watch(() => route.query.with, applyInitialContact)
 onBeforeUnmount(() => {
   leaveActiveDirect()
   socket?.off('direct:message', receiveMessage)
+  socket?.off('direct:conversation', receiveConversation)
+  socket?.off('direct:typing', receiveTyping)
+  socket?.off('direct:read', applyDirectRead)
+  socket?.off('direct:reaction', applyDirectReaction)
   socket?.off('connect', handleConnect)
   socket?.off('disconnect', handleDisconnect)
   socket?.off('connect_error', handleConnectError)
@@ -251,6 +445,27 @@ onBeforeUnmount(() => {
 .contacts h1 { font-size: 18px; font-weight: 700; }
 .contacts h1 i { margin-right: 9px; }
 .contacts header p { margin-top: 5px; color: var(--reddit-text-secondary); font-size: 13px; }
+.contacts-label { height: 40px; margin: 3px 12px 4px 16px; justify-content: space-between; color: var(--reddit-text-secondary); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+.refresh { width: 32px; height: 32px; border-radius: 50%; color: var(--reddit-text-meta); }
+.refresh:hover { background: var(--reddit-surface-inset); color: var(--reddit-text); }
+.conversation-state { margin: 0 12px 12px; padding: 16px 12px; border-radius: 12px; background: var(--reddit-surface-inset); color: var(--reddit-text-secondary); font-size: 13px; line-height: 1.45; }
+.conversation-state strong, .conversation-state small { display: block; }
+.conversation-state strong { color: var(--reddit-text); margin-bottom: 4px; }
+.conversation-state.error { color: #b42318; }
+.thread-list { overflow-y: auto; padding: 0 8px 10px; border-bottom: 1px solid var(--reddit-border-soft); }
+.thread-list button { width: 100%; min-height: 70px; padding: 9px 8px; display: flex; align-items: center; gap: 10px; border-radius: 14px; text-align: left; }
+.thread-list button:hover, .thread-list button.active { background: var(--reddit-surface-inset); }
+.thread-avatar { width: 44px; height: 44px; display: grid; place-items: center; flex-shrink: 0; overflow: hidden; border-radius: 50%; background: var(--reddit-blue); color: white; font-weight: 700; }
+.thread-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.thread-copy { flex: 1; min-width: 0; }
+.thread-line { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.thread-line strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.thread-line time { color: var(--reddit-text-muted); font-size: 11px; }
+.thread-copy small { display: block; margin-top: 4px; overflow: hidden; color: var(--reddit-text-meta); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.thread-copy small.unread { color: var(--reddit-text); font-weight: 600; }
+.thread-list b { min-width: 19px; height: 19px; padding: 2px 5px; border-radius: 12px; background: var(--reddit-orange); color: white; font-size: 11px; text-align: center; }
+.new-chat { flex-shrink: 0; padding-top: 12px; }
+.new-chat > p { margin: 0 16px 9px; color: var(--reddit-text-secondary); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .find-person { display: flex; gap: 7px; margin: 0 12px 12px; }
 .find-person input { flex: 1; min-width: 0; height: 42px; padding: 0 14px; border: 1px solid transparent; border-radius: 22px; background: var(--reddit-surface-inset); }
 .find-person input:focus { border-color: var(--reddit-blue); outline: none; }

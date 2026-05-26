@@ -48,12 +48,18 @@
           </div>
           <div v-else-if="messagesLoading" class="chat-empty">Loading messages...</div>
           <template v-else>
-            <MessageList :messages="messages" :current-user="currentUser" />
+            <MessageList
+              :messages="messages"
+              :current-user="currentUser"
+              :typing-users="typingUsers"
+              @reaction="handleReaction"
+            />
             <MessageInput
               :disabled="!canSend"
               :disabled-message="messageDisabledReason"
               :room-name="`r/${activeRoom.name}`"
               @send="sendMessage"
+              @typing-change="setTyping"
             />
           </template>
         </template>
@@ -89,6 +95,7 @@ const connected = ref(false)
 const roomJoined = ref(false)
 const joinedCommunity = ref('')
 const connectionError = ref('')
+const typingUsers = ref([])
 let socket
 const filteredRooms = computed(() => rooms.value.filter((room) =>
   room.name.toLowerCase().includes(search.value.trim().toLowerCase())))
@@ -136,6 +143,7 @@ async function loadMessages() {
     if (activeRoom.value?.name !== roomName) return
     messages.value = data.messages
     await joinActiveRoom()
+    await markActiveRoomRead()
   } catch (error) {
     if (activeRoom.value?.name !== roomName) return
     messageError.value = error.message
@@ -181,6 +189,7 @@ async function leaveJoinedRoom() {
   const roomName = joinedCommunity.value
   joinedCommunity.value = ''
   roomJoined.value = false
+  typingUsers.value = []
   if (!roomName || !socket?.connected) return
   try {
     const response = await emitSocketEvent(socket, 'community:leave', { community: roomName })
@@ -209,7 +218,84 @@ function appendMessage(message) {
 }
 
 function receiveMessage(payload) {
-  if (payload.community === activeRoom.value?.name) appendMessage(payload.message)
+  if (payload.community === activeRoom.value?.name) {
+    appendMessage(payload.message)
+    markActiveRoomRead()
+  }
+}
+
+async function markActiveRoomRead() {
+  if (!socket || !connected.value || !activeRoom.value?.name || !messages.value.length) return
+  try {
+    const response = await emitSocketEvent(socket, 'community:read', { community: activeRoom.value.name })
+    if (!response?.success) return
+    applyCommunityRead(response)
+  } catch {
+    // Read state is best effort.
+  }
+}
+
+function applyCommunityRead(payload) {
+  if (payload.community !== activeRoom.value?.name) return
+  const ids = new Set((payload.messageIds || []).map(String))
+  const increment = payload.username && payload.username !== currentUser.value ? 1 : 0
+  messages.value = messages.value.map((message) => (
+    ids.has(String(message.id))
+      ? {
+          ...message,
+          seen: true,
+          seenByCount: increment ? (message.seenByCount || 0) + increment : (message.seenByCount || 0),
+        }
+      : message
+  ))
+}
+
+function applyCommunityReaction(payload) {
+  if (payload.community !== activeRoom.value?.name) return
+  messages.value = messages.value.map((message) => (
+    String(message.id) === String(payload.messageId)
+      ? {
+          ...message,
+          reactions: payload.reactions,
+          viewerReaction: payload.actor === currentUser.value ? payload.actorReaction : message.viewerReaction,
+        }
+      : message
+  ))
+}
+
+function receiveTyping(payload) {
+  if (payload.community !== activeRoom.value?.name || payload.username === currentUser.value) return
+  typingUsers.value = payload.isTyping
+    ? Array.from(new Set([...typingUsers.value, payload.username]))
+    : typingUsers.value.filter((username) => username !== payload.username)
+}
+
+async function setTyping(isTyping) {
+  if (!canSend.value) return
+  try {
+    await emitSocketEvent(socket, 'community:typing', { community: activeRoom.value.name, isTyping })
+  } catch {
+    // Typing is transient.
+  }
+}
+
+async function handleReaction({ messageId, reaction }) {
+  if (!canSend.value) return
+  try {
+    const response = reaction
+      ? await emitSocketEvent(socket, 'community:reaction:set', { community: activeRoom.value.name, messageId, reaction })
+      : await emitSocketEvent(socket, 'community:reaction:remove', { community: activeRoom.value.name, messageId })
+    if (!response?.success) throw new Error(response?.error || 'Could not update reaction.')
+    applyCommunityReaction({
+      community: response.community,
+      messageId: response.messageId,
+      reactions: response.reactions,
+      actor: currentUser.value,
+      actorReaction: response.viewerReaction ?? null,
+    })
+  } catch (error) {
+    messageError.value = error.message
+  }
 }
 
 function handleConnect() {
@@ -222,6 +308,7 @@ function handleDisconnect() {
   connected.value = false
   roomJoined.value = false
   joinedCommunity.value = ''
+  typingUsers.value = []
 }
 
 function handleConnectError(error) {
@@ -238,6 +325,9 @@ onMounted(() => {
   socket.on('disconnect', handleDisconnect)
   socket.on('connect_error', handleConnectError)
   socket.on('community:message', receiveMessage)
+  socket.on('community:typing', receiveTyping)
+  socket.on('community:read', applyCommunityRead)
+  socket.on('community:reaction', applyCommunityReaction)
   connected.value = socket.connected
   loadRooms()
 })
@@ -250,6 +340,9 @@ watch(() => route.params.roomId, (name) => {
 onBeforeUnmount(() => {
   leaveJoinedRoom()
   socket?.off('community:message', receiveMessage)
+  socket?.off('community:typing', receiveTyping)
+  socket?.off('community:read', applyCommunityRead)
+  socket?.off('community:reaction', applyCommunityReaction)
   socket?.off('connect', handleConnect)
   socket?.off('disconnect', handleDisconnect)
   socket?.off('connect_error', handleConnectError)

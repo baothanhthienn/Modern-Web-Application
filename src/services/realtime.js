@@ -3,6 +3,13 @@ import { API_ORIGIN } from './api.js'
 
 let socket
 const ACK_TIMEOUT_MS = 8000
+export const CHAT_REACTIONS = [
+  { id: 'like', icon: '👍', label: 'Like' },
+  { id: 'love', icon: '❤️', label: 'Love' },
+  { id: 'laugh', icon: '😂', label: 'Laugh' },
+  { id: 'surprised', icon: '😮', label: 'Surprised' },
+  { id: 'sad', icon: '😢', label: 'Sad' },
+]
 
 export function getChatSocket() {
   if (!socket) {
@@ -34,4 +41,8 @@ export function emitSocketEvent(socketClient, event, payload) {
       resolve(response)
     })
   })
+}
+
+export function reactionIcon(reaction) {
+  return CHAT_REACTIONS.find((option) => option.id === reaction)?.icon || '•'
 }

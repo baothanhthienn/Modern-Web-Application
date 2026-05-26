@@ -6,6 +6,7 @@
       :disabled="disabled"
       :placeholder="disabled ? disabledMessage : `Message ${roomName}`"
       @keydown.enter.exact.prevent="send"
+      @blur="emitTyping(false)"
     ></textarea>
     <button type="submit" :disabled="disabled || !body.trim()" aria-label="Send message">
       <i class="fa-solid fa-paper-plane"></i>
@@ -14,22 +15,45 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 
 const props = defineProps({
   disabled: { type: Boolean, default: false },
   disabledMessage: { type: String, default: 'Messaging is unavailable.' },
   roomName: { type: String, default: '' },
 })
-const emit = defineEmits(['send'])
+const emit = defineEmits(['send', 'typing-change'])
 const body = ref('')
+let typingTimeout
 
 function send() {
   const text = body.value.trim()
   if (!text || props.disabled) return
   emit('send', text)
   body.value = ''
+  emitTyping(false)
 }
+
+watch(body, (value) => {
+  const isTyping = Boolean(value.trim())
+  emitTyping(isTyping)
+  if (!isTyping) return
+  clearTimeout(typingTimeout)
+  typingTimeout = window.setTimeout(() => emitTyping(false), 1600)
+})
+
+watch(() => props.disabled, (disabled) => {
+  if (disabled) emitTyping(false)
+})
+
+function emitTyping(isTyping) {
+  emit('typing-change', isTyping)
+}
+
+onBeforeUnmount(() => {
+  clearTimeout(typingTimeout)
+  emitTyping(false)
+})
 </script>
 
 <style scoped>
