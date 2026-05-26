@@ -86,6 +86,13 @@
         <div class="sidebar-divider"></div>
         <div class="sidebar-section-label">Custom Feeds</div>
 
+        <router-link to="/team" class="sidebar-item" active-class="sidebar-item--active">
+          <div class="nav-item-inner">
+            <i class="fa-solid fa-people-group"></i>
+            <span>Team</span>
+          </div>
+        </router-link>
+
         <router-link to="/chat" class="sidebar-item" active-class="sidebar-item--active">
           <div class="nav-item-inner sidebar-item-chat">
             <i class="fa-solid fa-comments"></i>

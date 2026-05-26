@@ -16,7 +16,7 @@
             <router-link v-if="viewer.canMessage" class="outline" :to="{ path: '/inbox', query: { with: profile.username } }">
               <i class="fa-regular fa-comment-dots"></i> Chat
             </router-link>
-            <button v-if="viewer.isAuthenticated && !viewer.isSelf" class="primary" @click="toggleFollow">
+            <button v-if="!isLocalProfile && viewer.isAuthenticated && !viewer.isSelf" class="primary" @click="toggleFollow">
               {{ viewer.isFollowing ? 'Following' : 'Follow' }}
             </button>
             <button v-if="viewer.isSelf" class="outline" @click="editing = true">Change username</button>
@@ -101,6 +101,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import PostCard from '../components/PostCard.vue'
+import { teamPostsByUsername, teamProfilesByUsername } from '../data/teamProfiles.js'
 import { followProfile, getPost, getProfile, getProfileActivity, getSavedItems, unfollowProfile, updateUsername } from '../services/api.js'
 import { avatarLetter, formatCount, formatDate, formatRelativeTime } from '../services/format.js'
 import { saveAuthSession, useAuthUser } from '../services/auth.js'
@@ -113,6 +114,7 @@ const viewer = ref({})
 const activeTab = ref('posts')
 const items = ref([])
 const nextCursor = ref(null)
+const isLocalProfile = ref(false)
 const loadingProfile = ref(true)
 const loadingActivity = ref(false)
 const profileError = ref('')
@@ -127,6 +129,7 @@ const tabs = [
   { value: 'comments', label: 'Comments' },
   { value: 'saved', label: 'Saved' },
 ]
+const localProfile = computed(() => teamProfilesByUsername[String(route.params.username || '')] || null)
 const visibleTabs = computed(() => viewer.value.isSelf ? tabs : tabs.filter((tab) => tab.value !== 'saved'))
 const postItems = computed(() => items.value.filter((item) => !item.type || item.type === 'post'))
 const commentItems = computed(() => items.value.filter((item) => item.type === 'comment'))
@@ -187,14 +190,33 @@ async function hydrateActivityItems(activityItems, username) {
 async function loadProfile() {
   loadingProfile.value = true
   profileError.value = ''
+  activityError.value = ''
+  actionError.value = ''
   activeTab.value = 'posts'
   try {
     const data = await getProfile(route.params.username)
+    isLocalProfile.value = false
     profile.value = data.profile
     viewer.value = data.viewer
     newUsername.value = data.profile.username
     await loadActivity()
   } catch (error) {
+    if (error.message === 'Profile not found.' && localProfile.value) {
+      isLocalProfile.value = true
+      profile.value = localProfile.value
+      viewer.value = {
+        isAuthenticated: Boolean(authUser.value),
+        isSelf: authUser.value?.username === localProfile.value.username,
+        isFollowing: false,
+        canMessage: false,
+      }
+      newUsername.value = localProfile.value.username
+      await loadActivity()
+      profileError.value = ''
+      return
+    }
+    isLocalProfile.value = false
+    profile.value = null
     profileError.value = error.message
   } finally {
     loadingProfile.value = false
@@ -202,6 +224,15 @@ async function loadProfile() {
 }
 
 async function loadActivity(cursor) {
+  if (isLocalProfile.value) {
+    items.value = activeTab.value === 'posts'
+      ? (teamPostsByUsername[profile.value.username] || [])
+      : []
+    nextCursor.value = null
+    loadingActivity.value = false
+    activityError.value = ''
+    return
+  }
   loadingActivity.value = true
   activityError.value = ''
   try {

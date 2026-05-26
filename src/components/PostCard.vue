@@ -17,7 +17,7 @@
     </a>
 
     <div class="thread-actions">
-      <div class="vote-control" :class="{ voted: post.userVote }">
+      <div v-if="!post.localOnly" class="vote-control" :class="{ voted: post.userVote }">
         <button :class="{ selected: post.userVote === 1 }" aria-label="Upvote" @click.stop="setVote(1)">
           <i class="fa-solid fa-arrow-up"></i>
         </button>
@@ -26,12 +26,15 @@
           <i class="fa-solid fa-arrow-down"></i>
         </button>
       </div>
+      <div v-else class="chip chip--static">
+        <i class="fa-regular fa-image"></i> Local post
+      </div>
       <button class="chip" @click.stop="openPost"><i class="fa-regular fa-message"></i>{{ formatCount(post.comments) }}</button>
-      <button class="chip" @click.stop="toggleSaved">
+      <button v-if="!post.localOnly" class="chip" @click.stop="toggleSaved">
         <i :class="post.saved ? 'fa-solid fa-bookmark' : 'fa-regular fa-bookmark'"></i>
         {{ post.saved ? 'Saved' : 'Save' }}
       </button>
-      <router-link class="chip" :to="`/chat/${post.community}`" @click.stop>
+      <router-link v-if="!post.localOnly" class="chip" :to="`/chat/${post.community}`" @click.stop>
         <i class="fa-regular fa-comment-dots"></i> Chat
       </router-link>
     </div>
@@ -107,5 +110,6 @@ h2 { margin-bottom: 8px; color: var(--reddit-text); font-size: 18px; line-height
 .vote-control .selected { color: var(--reddit-orange); }
 .vote-control .selectedDown { color: var(--reddit-blue); }
 .chip { gap: 7px; padding: 0 14px; }
+.chip--static { pointer-events: none; }
 .thread-error { margin-top: 9px; color: #b42318; font-size: 12px; }
 </style>
