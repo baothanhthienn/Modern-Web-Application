@@ -1086,8 +1086,15 @@ require mutual follows.
 
 ## Notifications API
 
-When an authenticated user creates a post, the backend creates a notification
-for that user. Fetch the notification page data with:
+The backend creates notifications for:
+
+- `post_created`: the signed-in user publishes a post.
+- `new_follower`: another user starts following the signed-in user; this does
+  not require a reciprocal follow.
+- `mutual_follow`: a second follow completes a reciprocal follow relationship,
+  enabling direct chat for both users.
+
+Fetch notification page data with:
 
 ```http
 GET /api/notifications?limit=20&cursor=<cursor>
@@ -1105,11 +1112,63 @@ GET /api/notifications?limit=20&cursor=<cursor>
       "actor": "sample_user",
       "read": false,
       "createdAt": "2026-05-25T03:15:00.000Z"
+    },
+    {
+      "id": 2,
+      "type": "new_follower",
+      "message": "u/other_user followed you.",
+      "postId": null,
+      "actor": "other_user",
+      "targetUsername": "other_user",
+      "read": false,
+      "createdAt": "2026-05-26T10:19:30.000Z"
+    },
+    {
+      "id": 3,
+      "type": "mutual_follow",
+      "message": "You and u/other_user now follow each other. You can start chatting.",
+      "postId": null,
+      "actor": "other_user",
+      "targetUsername": "other_user",
+      "read": false,
+      "createdAt": "2026-05-26T10:20:30.000Z"
     }
   ],
   "nextCursor": null
 }
 ```
+
+For `new_follower`, only the followed user receives the notification.
+`targetUsername` identifies the new follower; the frontend should use it when
+linking to that user's profile:
+
+```text
+/profile/<targetUsername>
+```
+
+For `mutual_follow`, both users receive one notification. The
+`targetUsername` value is the canonical route target for:
+
+```text
+/inbox?with=<targetUsername>
+```
+
+For notification types without a user target, including `post_created`,
+`targetUsername` is `null`.
+
+Repeated follow requests while an existing follow is active do not generate
+duplicate `new_follower` or `mutual_follow` notifications. If a user
+unfollows, notifications belonging to that active relationship are removed;
+following again creates fresh applicable notifications.
+
+Connected authenticated clients also receive:
+
+```text
+notification:new  { "notification": <notification-object> }
+```
+
+for newly created `new_follower` and `mutual_follow` notifications.
+`direct:conversation` is emitted only when `mutual_follow` enables chat.
 
 ## Current User Details API
 
@@ -1157,7 +1216,7 @@ Conflict, `409`:
 | `community_message_reactions` | Per-member reactions restricted to five supported values. |
 | `direct_messages` | Persisted messages between mutually-following users, including recipient `read_at`. |
 | `direct_message_reactions` | Per-user direct-message reactions restricted to five supported values. |
-| `notifications` | Notification page items, including author post-created events. |
+| `notifications` | Notification page items, including post-created, new-follower, and mutual-follow chat-available events; `related_user_id` identifies the related user when applicable. |
 
 ## General Error Responses
 

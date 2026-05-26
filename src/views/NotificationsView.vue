@@ -28,9 +28,7 @@
               <div class="notification-copy">
                 <strong>{{ notification.message }}</strong>
                 <p>
-                  <span v-if="notificationActor(notification)">u/{{ notificationActor(notification) }}</span>
-                  <span v-if="notification.postId">Post #{{ notification.postId }}</span>
-                  <span v-else-if="notificationTarget(notification)">u/{{ notificationTarget(notification) }}</span>
+                  <span v-if="notificationContext(notification)">{{ notificationContext(notification) }}</span>
                   <span>{{ formatRelativeTime(notification.createdAt) }}</span>
                 </p>
               </div>
@@ -49,8 +47,9 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppShell from '../components/AppShell.vue'
+import { getChatSocket } from '../services/realtime.js'
 import { getNotifications } from '../services/api.js'
 import { formatRelativeTime } from '../services/format.js'
 
@@ -62,13 +61,13 @@ const error = ref('')
 const filteredNotifications = computed(() => filter.value === 'unread'
   ? notifications.value.filter((notification) => !notification.read)
   : notifications.value)
+let socket
 
 function iconFor(type) {
   return {
     post_created: 'fa-solid fa-pen-to-square',
+    new_follower: 'fa-solid fa-user-plus',
     mutual_follow: 'fa-solid fa-user-group',
-    follow_matched: 'fa-solid fa-user-group',
-    chat_unlocked: 'fa-solid fa-user-group',
   }[type] || 'fa-regular fa-bell'
 }
 
@@ -77,19 +76,49 @@ function notificationActor(notification) {
 }
 
 function notificationTarget(notification) {
-  return notification.targetUsername || notification.username || null
+  return notification.targetUsername || null
 }
 
 function notificationLink(notification) {
   if (notification.postId) return `/post/${notification.postId}`
 
   const username = notificationTarget(notification) || notificationActor(notification)
-  if (['mutual_follow', 'follow_matched', 'chat_unlocked'].includes(notification.type) && username) {
+  if (notification.type === 'new_follower' && username) {
+    return `/profile/${username}`
+  }
+  if (notification.type === 'mutual_follow' && username) {
     return { path: '/inbox', query: { with: username } }
   }
 
   if (username) return `/profile/${username}`
   return '/'
+}
+
+function notificationContext(notification) {
+  if (notification.postId) {
+    const parts = []
+    if (notificationActor(notification)) parts.push(`u/${notificationActor(notification)}`)
+    parts.push(`Post #${notification.postId}`)
+    return parts.join(' ')
+  }
+
+  const username = notificationTarget(notification) || notificationActor(notification)
+  return username ? `u/${username}` : ''
+}
+
+function applyLiveNotification(notification) {
+  if (!notification?.id) return
+  const existingIndex = notifications.value.findIndex((item) => item.id === notification.id)
+  if (existingIndex >= 0) {
+    notifications.value[existingIndex] = notification
+    return
+  }
+  notifications.value = [notification, ...notifications.value]
+}
+
+function receiveNotification(payload) {
+  if (!payload?.notification) return
+  applyLiveNotification(payload.notification)
 }
 
 async function loadNotifications(cursor) {
@@ -107,7 +136,15 @@ async function loadNotifications(cursor) {
   }
 }
 
-onMounted(() => loadNotifications())
+onMounted(() => {
+  loadNotifications()
+  socket = getChatSocket()
+  socket.on('notification:new', receiveNotification)
+})
+
+onBeforeUnmount(() => {
+  socket?.off('notification:new', receiveNotification)
+})
 </script>
 
 <style scoped>

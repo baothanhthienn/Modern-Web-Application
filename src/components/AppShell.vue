@@ -134,10 +134,11 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearStoredAuth, logout, restoreAuthSession, useAuthUser } from '../services/auth.js'
 import { getCommunities, getNotifications } from '../services/api.js'
+import { getChatSocket } from '../services/realtime.js'
 
 const router = useRouter()
 const route = useRoute()
@@ -146,6 +147,8 @@ const currentUser = useAuthUser()
 
 async function signOut() {
   await logout().catch(() => {})
+  unsubscribeNotifications()
+  hasNotifications.value = false
   currentUser.value = null
   router.push('/')
 }
@@ -155,8 +158,11 @@ onMounted(async () => {
   try {
     currentUser.value = await restoreAuthSession()
     loadNotifications()
+    subscribeNotifications()
   } catch {
     clearStoredAuth()
+    unsubscribeNotifications()
+    hasNotifications.value = false
     currentUser.value = null
   }
 })
@@ -172,6 +178,7 @@ function goSearch() {
 
 const hasNotifications = ref(false)
 const communities = ref([])
+let socket
 
 async function loadCommunities() {
   try {
@@ -190,6 +197,24 @@ async function loadNotifications() {
     hasNotifications.value = false
   }
 }
+
+function receiveNotification(payload) {
+  if (!payload?.notification) return
+  if (!payload.notification.read) hasNotifications.value = true
+}
+
+function subscribeNotifications() {
+  socket = getChatSocket()
+  socket.on('notification:new', receiveNotification)
+}
+
+function unsubscribeNotifications() {
+  socket?.off('notification:new', receiveNotification)
+}
+
+onBeforeUnmount(() => {
+  unsubscribeNotifications()
+})
 </script>
 
 <style scoped>
