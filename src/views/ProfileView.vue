@@ -35,7 +35,7 @@
           <div v-else-if="activityError" class="profile-state profile-state--error">{{ activityError }}</div>
           <template v-else-if="items.length">
             <PostCard
-              v-for="item in postItems"
+              v-for="item in visiblePostItems"
               :key="item.id"
               :post="item"
               @updated="replaceItem"
@@ -46,7 +46,23 @@
               <div>{{ comment.body }}</div>
               <small>{{ formatRelativeTime(comment.createdAt) }} - {{ formatCount(comment.score) }} karma</small>
             </article>
-            <button v-if="nextCursor" class="more" @click="loadActivity(nextCursor)">Load more</button>
+            <div v-if="activeTab === 'posts' && postItems.length" class="pager">
+              <div class="pager-shell">
+                <button class="pager-control" :disabled="currentPostIndex === 0" @click="goToPreviousPost">
+                  <i class="fa-solid fa-chevron-left"></i>
+                  <span>Previous</span>
+                </button>
+                <div class="pager-center">
+                  <span class="pager-badge">Posts</span>
+                  <span class="pager-status">{{ currentPostIndex + 1 }} / {{ totalPostsLabel }}</span>
+                </div>
+                <button class="pager-control pager-control--next" :disabled="!canGoNext" @click="goToNextPost">
+                  <span>{{ loadingNextPost ? 'Loading...' : nextPostLabel }}</span>
+                  <i class="fa-solid fa-chevron-right"></i>
+                </button>
+              </div>
+            </div>
+            <button v-else-if="nextCursor" class="more" @click="loadActivity(nextCursor)">Load more</button>
           </template>
           <div v-else class="empty">
             <i class="fa-regular fa-folder-open"></i>
@@ -115,6 +131,8 @@ const activeTab = ref('posts')
 const items = ref([])
 const nextCursor = ref(null)
 const isLocalProfile = ref(false)
+const currentPostIndex = ref(0)
+const loadingNextPost = ref(false)
 const loadingProfile = ref(true)
 const loadingActivity = ref(false)
 const profileError = ref('')
@@ -133,6 +151,17 @@ const localProfile = computed(() => teamProfilesByUsername[String(route.params.u
 const visibleTabs = computed(() => viewer.value.isSelf ? tabs : tabs.filter((tab) => tab.value !== 'saved'))
 const postItems = computed(() => items.value.filter((item) => !item.type || item.type === 'post'))
 const commentItems = computed(() => items.value.filter((item) => item.type === 'comment'))
+const visiblePostItems = computed(() => {
+  if (activeTab.value !== 'posts') return postItems.value
+  const currentPost = postItems.value[currentPostIndex.value]
+  return currentPost ? [currentPost] : []
+})
+const totalPostsLabel = computed(() => nextCursor.value ? `${postItems.value.length}+` : String(postItems.value.length))
+const canGoNext = computed(() => loadingNextPost.value || currentPostIndex.value < postItems.value.length - 1 || Boolean(nextCursor.value))
+const nextPostLabel = computed(() => {
+  if (currentPostIndex.value < postItems.value.length - 1) return 'Next'
+  return nextCursor.value ? 'Next' : 'End'
+})
 
 function activityPostId(value) {
   if (typeof value === 'number') return value
@@ -193,6 +222,7 @@ async function loadProfile() {
   activityError.value = ''
   actionError.value = ''
   activeTab.value = 'posts'
+  currentPostIndex.value = 0
   try {
     const data = await getProfile(route.params.username)
     isLocalProfile.value = false
@@ -228,6 +258,7 @@ async function loadActivity(cursor) {
     items.value = activeTab.value === 'posts'
       ? (teamPostsByUsername[profile.value.username] || [])
       : []
+    currentPostIndex.value = 0
     nextCursor.value = null
     loadingActivity.value = false
     activityError.value = ''
@@ -241,6 +272,7 @@ async function loadActivity(cursor) {
       : await getProfileActivity(profile.value.username, { type: activeTab.value, cursor })
     const nextItems = await hydrateActivityItems(data.items, profile.value.username)
     items.value = cursor ? [...items.value, ...nextItems] : nextItems
+    if (!cursor) currentPostIndex.value = 0
     nextCursor.value = data.nextCursor
   } catch (error) {
     activityError.value = error.message
@@ -251,7 +283,30 @@ async function loadActivity(cursor) {
 
 function selectTab(tab) {
   activeTab.value = tab
+  currentPostIndex.value = 0
   loadActivity()
+}
+
+function goToPreviousPost() {
+  if (currentPostIndex.value > 0) currentPostIndex.value -= 1
+}
+
+async function goToNextPost() {
+  if (currentPostIndex.value < postItems.value.length - 1) {
+    currentPostIndex.value += 1
+    return
+  }
+
+  if (!nextCursor.value || loadingNextPost.value) return
+
+  loadingNextPost.value = true
+  const previousLength = postItems.value.length
+  try {
+    await loadActivity(nextCursor.value)
+    if (postItems.value.length > previousLength) currentPostIndex.value = previousLength
+  } finally {
+    loadingNextPost.value = false
+  }
 }
 
 function replaceItem(updated) {
@@ -315,6 +370,64 @@ watch(() => route.params.username, loadProfile, { immediate: true })
 .comment h2 { margin: 8px 0; font-size: 15px; }
 .comment div { margin: 10px 0; padding: 12px; border-left: 2px solid var(--reddit-border); color: var(--reddit-text-secondary); font-size: 14px; }
 .more { margin: 16px; border: 1px solid var(--reddit-border-emphasis); }
+.more:disabled { opacity: .5; cursor: default; }
+.pager { margin: 18px 16px 6px; }
+.pager-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--reddit-border-soft);
+  border-radius: 18px;
+  background: var(--reddit-white);
+}
+.pager-control {
+  min-width: 0;
+  height: 42px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  justify-self: start;
+  border-radius: 999px;
+  border: 1px solid var(--reddit-border-emphasis);
+  background: var(--reddit-white);
+  color: var(--reddit-text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.pager-control--next { justify-self: end; }
+.pager-control:not(:disabled):hover {
+  background: var(--reddit-surface-inset);
+}
+.pager-control:disabled {
+  opacity: .45;
+  cursor: default;
+}
+.pager-center {
+  min-width: 0;
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+}
+.pager-badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--reddit-border-soft);
+  background: var(--reddit-surface-inset);
+  color: var(--reddit-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pager-status {
+  color: var(--reddit-text-meta);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}
 .empty { padding: 80px 20px; text-align: center; color: var(--reddit-text-secondary); }
 .empty i { font-size: 32px; color: var(--reddit-text-muted); margin-bottom: 12px; }
 .empty h2 { color: var(--reddit-text); font-size: 18px; margin-bottom: 7px; }
@@ -338,5 +451,5 @@ dd { margin: 5px 0 0; font-family: var(--font-mono); font-size: 13px; font-weigh
 .username-dialog p { margin: 9px 0 16px; color: var(--reddit-text-secondary); font-size: 13px; }
 .username-dialog input { width: 100%; height: 44px; padding: 0 13px; border: 1px solid var(--reddit-border); border-radius: 9px; background: var(--reddit-surface-inset); }
 .username-dialog div { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
-@media (max-width: 860px) { .profile-page { padding: 8px 0 36px; } .banner { border-radius: 0; } .identity { padding: 0 16px 14px; flex-wrap: wrap; } .identity-actions { width: 100%; margin-left: 0; } .tabs { overflow-x: auto; } .columns { display: flex; flex-direction: column-reverse; gap: 8px; } .rail { padding: 0 16px; } }
+@media (max-width: 860px) { .profile-page { padding: 8px 0 36px; } .banner { border-radius: 0; } .identity { padding: 0 16px 14px; flex-wrap: wrap; } .identity-actions { width: 100%; margin-left: 0; } .tabs { overflow-x: auto; } .columns { display: flex; flex-direction: column-reverse; gap: 8px; } .rail { padding: 0 16px; } .pager-shell { grid-template-columns: 1fr; } .pager-control, .pager-control--next { width: 100%; justify-content: center; } }
 </style>
