@@ -1,1384 +1,988 @@
-# Modern Web Application Backend API
+# Understanding This Codebase
 
-This repository contains the Express authentication API for the frontend
-application. It replaces PHP authentication endpoints with a JSON API intended
-for Railway deployment and a PostgreSQL database.
+This document explains the application in beginner-friendly language while
+staying close to what the current code actually does.
 
-This document is the integration contract for frontend work.
+## 1. What This Application Is
 
-## What The API Does
+This repository is a **Vue 3 frontend** for a Reddit-style social application.
+It provides screens for:
 
-The API provides:
+- Registration and login.
+- A home feed of posts.
+- Post creation, voting, and saving.
+- Search for posts, communities, and people.
+- Public profiles, follows, and username changes.
+- Community chat.
+- Direct messages between mutual followers.
+- Notifications.
+- A local team/contributor showcase page.
 
-- User registration.
-- Login with either username or email.
-- Cookie-based authenticated session restoration after a page reload.
-- Logout and server-side session invalidation.
-- Public user profiles and public activity reads.
-- Authenticated access to the current user's saved-items tab.
-- Home feed retrieval with `best`, `hot`, `new`, `top`, and `rising` sorting.
-- Persisted low-level post writing, voting, and saving.
-- Username and post-title search.
-- Community joining and member-only realtime community chat.
-- Mutual-follow realtime direct chat.
-- Notifications and signed-in username editing.
-- A database health check for deployment verification.
+The repository is **not the complete backend application**. The frontend calls
+an Express API described in `API.md`. That backend is expected to run on
+Railway or locally and persist data in PostgreSQL.
 
-Passwords are hashed on the server with bcrypt. Authentication uses an
-`HttpOnly` session cookie, so frontend code never reads or stores the raw
-session token. The database stores only a SHA-256 hash of that token.
-
-## Frontend Integration Summary
-
-Set the frontend's public API configuration to the deployed backend:
+The easiest mental model is:
 
 ```text
-VITE_API_BASE_URL=https://<railway-api-domain>/api
+Vue components display the interface
+        |
+        | REST requests for stored data and actions
+        v
+Express API + PostgreSQL
+
+Vue chat/inbox/notification components
+        |
+        | Socket.IO events for immediate live updates
+        v
+Express/Socket.IO server
 ```
 
-For local development:
+One exception exists: `/team` and its special team profile/post content use
+local JavaScript data in `src/data/teamProfiles.js`. Those showcase items do
+not need the backend.
+
+## 2. Technology Stack
+
+| Technology | Purpose |
+| --- | --- |
+| Vue 3 | Reactive UI component framework. |
+| Vue Router | Switches pages based on URL routes. |
+| Vite | Development server and production build tool. |
+| Bootstrap CSS | Utility/layout classes such as rows and flex classes. |
+| Custom CSS | Reddit-inspired colors, spacing, and component styling. |
+| Font Awesome | Icons used throughout the UI. |
+| Socket.IO Client | Realtime messages, typing, seen state, reactions, and notification updates. |
+| Express API, documented externally | Authentication and stored application data. |
+| PostgreSQL, documented externally | Backend persistence; there is no database code in this frontend repository. |
+
+## 3. How To Run It
+
+Install dependencies and start Vite:
+
+```bash
+npm install
+npm run dev
+```
+
+Available scripts from `package.json`:
+
+| Script | Meaning |
+| --- | --- |
+| `npm run dev` | Run the Vite development server. |
+| `npm run build` | Produce a production frontend build. |
+| `npm run preview` | Preview the production build locally. |
+
+### API configuration
+
+Both `src/services/api.js` and `src/services/auth.js` use:
+
+```js
+import.meta.env.VITE_API_BASE_URL || '/api'
+```
+
+In local Vite development, `vite.config.js` proxies:
+
+```text
+/api       -> https://modern-web-application-backend-production.up.railway.app
+/socket.io -> https://modern-web-application-backend-production.up.railway.app
+```
+
+So the default `/api` works during `npm run dev` by forwarding browser
+requests to Railway while keeping browser requests same-origin.
+
+To point at another backend, set an environment value such as:
 
 ```text
 VITE_API_BASE_URL=http://localhost:3000/api
 ```
 
-All frontend authentication requests must include credentials:
+Important detail: the source code defaults to `/api`; a deployed static
+frontend must either set `VITE_API_BASE_URL` during build or be hosted behind
+a server that routes `/api` and `/socket.io` correctly.
+
+## 4. Repository Map
+
+```text
+index.html                         Browser HTML host and external fonts/icons
+package.json                       Dependencies and npm commands
+vite.config.js                     Vue plugin and development API/socket proxy
+README.md                          Short setup summary
+API.md                             Full expected Express backend contract
+
+AUTH_EXPRESS_RAILWAY_HANDOFF.md    Historical PHP-to-Express migration notes
+FOLLOW_NOTIFICATION_BACKEND.md    Backend request for mutual follow notices
+INBOX_CONVERSATIONS_API.md         Backend request/history for inbox listing
+REALTIME_CHAT_BACKEND_HANDOFF.md   Socket.IO debugging and required behavior
+profile_api.md                     Profile integration notes
+
+src/
+  main.js                          Creates and mounts the Vue application
+  App.vue                          Displays the currently routed view
+  style.css                        Global design tokens and basic reset styles
+
+  router/
+    index.js                       URL route definitions
+
+  services/
+    api.js                         REST requests for app data/actions
+    auth.js                        Login/session/logout and shared auth state
+    realtime.js                    Shared Socket.IO client and reactions
+    format.js                      Formatting helpers for display
+
+  data/
+    teamProfiles.js                Local-only team profiles and generated posts
+
+  components/
+    AppShell.vue                   Shared header/sidebar/toast layout
+    PostCard.vue                   Shared post renderer and post actions
+    chat/
+      MessageList.vue              Shared message display/reaction UI
+      MessageInput.vue             Shared message composer/typing emitter
+
+  views/
+    HomeView.vue                   Feed and create-post screen
+    PostView.vue                   Single post screen
+    SearchView.vue                 Search screen
+    ProfileView.vue                Profile/activity screen
+    NotificationsView.vue          Notification list screen
+    ChatView.vue                   Community realtime chat screen
+    InboxView.vue                  Direct realtime chat screen
+    LoginView.vue                  Login form
+    RegisterView.vue               Registration form
+    TeamView.vue                   Local contributor showcase
+```
+
+## 5. Vue Basics Used In This App
+
+Almost every view is a Vue Single File Component:
+
+```vue
+<template>
+  <!-- HTML-like UI -->
+</template>
+
+<script setup>
+// JavaScript state and behavior
+</script>
+
+<style scoped>
+/* CSS limited to this component */
+</style>
+```
+
+The important Vue tools are:
+
+| Vue feature | Meaning in this application |
+| --- | --- |
+| `ref(value)` | Stores a reactive value such as `loading`, `posts`, or `messages`. Update/read it in JavaScript using `.value`. |
+| `reactive(object)` | Stores a reactive object, such as the create-post form draft. |
+| `computed(() => ...)` | Calculates UI state from other state, such as `canSend` or filtered rooms. |
+| `onMounted(...)` | Runs setup when the page/component appears, commonly loading data or attaching sockets. |
+| `onBeforeUnmount(...)` | Removes socket listeners and room subscriptions when leaving a view. |
+| `watch(...)` | Runs again when a route/query/state value changes. |
+| Props | Parent component gives data to a reusable child. |
+| Emits | Child component tells the parent that an action happened. |
+
+An example of props/emits is chat:
+
+```text
+ChatView owns messages and socket behavior
+  -> sends messages as props to MessageList
+MessageList user clicks a reaction
+  -> emits "reaction" to ChatView
+ChatView sends the reaction Socket.IO event
+```
+
+## 6. Application Boot And Routing
+
+### `index.html`
+
+This is the one browser HTML file. It:
+
+- Creates `<div id="app"></div>`, where Vue mounts.
+- Loads Reddit Sans and Reddit Mono from Google Fonts.
+- Loads Font Awesome icons.
+- Loads `/src/main.js` in development.
+
+### `src/main.js`
+
+This is the application entry point:
 
 ```js
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api';
-
-const response = await fetch(`${API_BASE_URL}/auth/session`, {
-  credentials: 'include',
-});
+createApp(App).use(router).mount('#app')
 ```
 
-## Local Frontend Against Deployed API
+It also imports Bootstrap and `src/style.css`.
 
-Use this workflow when the backend runs on Railway and the Vite frontend
-stays on `http://localhost:5173`.
+### `src/App.vue`
 
-### Recommended: Vite Dev Proxy
+`App.vue` contains only:
 
-Proxy API and Socket.IO through the Vite dev server so the browser treats
-requests as same-origin. This avoids cross-site cookie restrictions.
+```vue
+<router-view />
+```
 
-`vite.config.js`:
+It is a placeholder where the route's view component appears.
+
+### `src/router/index.js`
+
+The application uses `createWebHashHistory()`. Routes appear after `#` in a
+deployed URL, for example `/#/chat/artificial`. Hash routing helps a static
+frontend work without server-side route fallback configuration.
+
+| Route | View | Purpose |
+| --- | --- | --- |
+| `/` | `HomeView` | Feed, sorts, community rail, create post. |
+| `/chat/:roomId?` | `ChatView` | Optional selected community chat room. |
+| `/inbox` | `InboxView` | Direct-message conversations; supports `?with=username`. |
+| `/login` | `LoginView` | Log in. |
+| `/register` | `RegisterView` | Create account. |
+| `/profile/:username` | `ProfileView` | Backend user profile or local team profile fallback. |
+| `/post/:id` | `PostView` | Backend post or local team post fallback. |
+| `/search` | `SearchView` | Search; supports `?q=search text`. |
+| `/team` | `TeamView` | Contributor roster using local data. |
+| `/notifications` | `NotificationsView` | Account notifications. |
+
+View imports are lazy loaded, meaning a page's JavaScript is loaded when that
+route is visited rather than all up front.
+
+## 7. Shared Page Layout: `AppShell.vue`
+
+Nearly every application page renders its content inside `<AppShell>`.
+`LoginView` and `RegisterView` are exceptions because they have full-screen
+authentication layouts.
+
+`AppShell` supplies:
+
+- A fixed top navbar.
+- A fixed left sidebar on desktop.
+- A `<slot />` where the view's own content is displayed.
+- Global direct-message toast popups.
+- Session restoration and common sidebar/notification loading.
+
+### Navbar behavior
+
+The navbar includes:
+
+- Logo linking home.
+- Search field: Enter navigates to `/search?q=<typed query>`.
+- Chat link.
+- Notification link with an unread dot.
+- Create link: authenticated users navigate to `/?compose=true`; guests
+  navigate to `/register`.
+- Login button for guests.
+- Username link and logout button for authenticated users.
+
+### Sidebar behavior
+
+The sidebar includes:
+
+- Home.
+- Popular, which is the home route with `?sort=top`.
+- Latest, which is the home route with `?sort=new`.
+- Team.
+- Community Chats.
+- Inbox.
+- A dynamically loaded list of communities that links each community to its
+  chat route.
+
+### Session startup
+
+When `AppShell` mounts it:
+
+1. Loads public communities with `getCommunities()`.
+2. Calls `restoreAuthSession()` to ask the server whether the session cookie
+   is valid.
+3. If authenticated, loads notifications and subscribes to realtime
+   notification/inbox events.
+4. If restoration fails, clears local authentication display state.
+
+Because `AppShell` is included inside routed view components rather than
+wrapped around `<router-view>` once in `App.vue`, it may mount again when
+navigating between shell pages. The Socket.IO service itself keeps a singleton
+socket, while each component removes its own event listeners on unmount.
+
+### Realtime shell behavior
+
+When authenticated, the shell listens for:
+
+| Socket event | Shell result |
+| --- | --- |
+| `notification:new` | Turns on the notification unread dot. |
+| `direct:conversation` | For an unread incoming direct message while outside `/inbox`, displays a toast for five seconds. |
+
+The toast opens `/inbox?with=<username>` when clicked. It stores seen message
+IDs in memory to avoid displaying the same toast repeatedly and shows up to
+three at once.
+
+## 8. Shared Service Layer
+
+The views generally do not use `fetch()` or `io()` directly. They call small
+functions in `src/services`.
+
+### `src/services/api.js`: REST application data
+
+`apiRequest(path, options)` is the base REST helper. It:
+
+1. Builds a URL from `API_BASE_URL` plus the supplied path.
+2. Always includes browser credentials so the session cookie can travel.
+3. Parses JSON.
+4. Requires a backend response with a boolean `success` property.
+5. Throws `ApiError` with a user-displayable message and HTTP status on
+   failures.
+
+`queryString()` creates encoded optional URL queries. `jsonRequest()` creates
+JSON write requests.
+
+Exports and their users:
+
+| Function | Request | Used for |
+| --- | --- | --- |
+| `getPosts()` | `GET /posts` | Home feed. |
+| `createPost()` | `POST /posts` | Home composer. |
+| `getPost()` | `GET /posts/:id` | Single post and full profile post hydration. |
+| `votePost()` | `PUT /posts/:id/vote` | PostCard voting. |
+| `savePost()` / `unsavePost()` | `PUT` / `DELETE /posts/:id/saved` | PostCard saved state. |
+| `searchContent()` | `GET /search` | Search screen. |
+| `getCommunities()` | `GET /communities` | Shell, home, search, community chat. |
+| `joinCommunity()` / `leaveCommunity()` | `POST` / `DELETE /communities/:name/join` | Community membership. |
+| `getProfile()` | `GET /profiles/:username` | Profile and direct-message header. |
+| `getProfileActivity()` | `GET /profiles/:username/activity` | Profile posts/comments. |
+| `getSavedItems()` | `GET /me/saved` | Own profile Saved tab. |
+| `followProfile()` / `unfollowProfile()` | `POST` / `DELETE /profiles/:username/follow` | Profile and inbox follow actions. |
+| `getNotifications()` | `GET /notifications` | Shell dot and notification page. |
+| `getCommunityMessages()` | `GET /chats/communities/:name/messages` | Initial community history. |
+| `getDirectMessages()` | `GET /chats/users/:username/messages` | Initial direct history. |
+| `getDirectConversations()` | `GET /chats/conversations` | Inbox thread list. |
+| `updateUsername()` | `PATCH /me/username` | Own-profile username dialog. |
+
+### `src/services/auth.js`: login state
+
+Authentication has two parts:
+
+1. **Real server authentication:** an `HttpOnly` cookie issued by the backend.
+   Vue cannot and should not read this cookie.
+2. **Convenient UI display state:** the returned user object is cached in
+   `localStorage` under `reddit_user` and a shared Vue `ref`.
+
+Exports:
+
+| Function | Role |
+| --- | --- |
+| `login(credentials)` | Sends username/email and password to `/auth/login`. |
+| `register(details)` | Sends new account details to `/auth/register`. |
+| `saveAuthSession({ user })` | Validates a username, stores display state locally, updates shared reactive user. |
+| `getStoredUser()` | Reads cached display state safely. |
+| `clearStoredAuth()` | Removes cached display state and resets reactive user. |
+| `useAuthUser()` | Gives components the shared authenticated-user `ref`. |
+| `restoreAuthSession()` | Confirms the cookie with `/auth/session`; authoritative after refresh. |
+| `logout()` | Calls `/auth/logout` then always clears local UI state. |
+
+The cached user is not proof of login. A stale local entry is removed if the
+server session restoration fails.
+
+### `src/services/realtime.js`: realtime connection
+
+This module creates one shared Socket.IO connection to `API_ORIGIN`, with
+cookies included. `getChatSocket()` lazily creates and connects it.
+
+`emitSocketEvent(socketClient, event, payload)` wraps acknowledged Socket.IO
+emits in a Promise and rejects if no acknowledgement arrives within eight
+seconds.
+
+It also defines the five supported reaction choices:
+
+```text
+like, love, laugh, surprised, sad
+```
+
+`closeChatSocket()` exists to disconnect the singleton, although the current
+views remove listeners/leave rooms rather than calling it.
+
+### `src/services/format.js`: display formatting
+
+| Function | Output example |
+| --- | --- |
+| `formatCount(1250)` | `1.3k` |
+| `formatRelativeTime(timestamp)` | `5 min. ago` or `May 25, 2026` |
+| `formatDate(timestamp)` | `May 25, 2026` |
+| `avatarLetter('programming')` | `P` |
+
+## 9. Reusable UI Components
+
+### `PostCard.vue`
+
+`PostCard` renders a post anywhere the app needs one: feed, search, profile,
+or single-post page.
+
+It displays:
+
+- Community and author link.
+- Relative creation time.
+- Flair, title, text, image, or link if supplied.
+- Vote controls.
+- Comment count button.
+- Save button.
+- Link to community chat.
+
+For normal API posts:
+
+- Clicking the card navigates to `/post/:id`.
+- Voting calls `votePost()`, then emits `updated` with the returned post.
+- Saving/unsaving calls the API, then emits `updated`.
+- The parent replaces its matching post in local state.
+
+For `localOnly` team posts:
+
+- It shows a `Local post` chip.
+- Vote, save, and community-chat actions are hidden.
+- It can still open its local post detail route and author profile.
+
+### `MessageInput.vue`
+
+This component is intentionally unaware of community versus direct chat. It
+receives:
+
+- Whether input is disabled.
+- The disabled placeholder reason.
+- The displayed room/person name.
+
+It emits:
+
+- `send` with trimmed text when Enter or send is pressed.
+- `typing-change` while text is being typed.
+
+Typing turns off after 1.6 seconds of no new typing, on blur, on disable, or
+when the component is unmounted.
+
+### `MessageList.vue`
+
+This component displays:
+
+- Incoming versus current-user message bubbles.
+- Message time.
+- Reaction chips and the reaction selection palette.
+- Seen status for the current user's sent messages.
+- Typing indicators.
+
+It auto-scrolls to the bottom when the number of messages changes.
+Reaction clicks emit an action to the owning view; it does not contact the
+server itself.
+
+## 10. Feature Screens And User Flows
+
+### `HomeView.vue`: feed and posting
+
+On mount the home page loads:
+
+- Posts through `getPosts({ sort })`.
+- Communities through `getCommunities()`.
+
+Feed sorts are `best`, `hot`, `new`, `top`, and `rising`. The selected sort is
+represented in the URL query except for default `best`.
+
+Pagination uses `nextCursor`:
+
+```text
+Initial request -> replace posts
+Load more request with cursor -> append posts
+```
+
+Authenticated users see a create-post trigger. The navbar can also open the
+same modal using `/?compose=true`. Submitting the form sends:
 
 ```js
-export default defineConfig({
-  server: {
-    proxy: {
-      '/api': {
-        target: 'https://<railway-api-domain>',
-        changeOrigin: true,
-        secure: true,
-      },
-      '/socket.io': {
-        target: 'https://<railway-api-domain>',
-        changeOrigin: true,
-        ws: true,
-        secure: true,
-      },
-    },
-  },
-});
+{
+  community: '',
+  title: '',
+  image: '',
+  description: ''
+}
 ```
 
-Frontend `.env.local`:
+to `createPost()`, closes/reset the form, then reloads the feed.
+
+The right rail shows communities with join/leave controls. Community join
+state controls access to community chat on the chat page.
+
+### `PostView.vue`: one post
+
+For a normal ID, the view calls `getPost(route.params.id)` and renders the
+returned object through `PostCard`.
+
+For a team showcase post ID:
+
+1. It first attempts the normal backend post request.
+2. If that request fails and an entry exists in `teamPostsById`, it uses the
+   local post.
+
+The discussion section currently says comments are unavailable because the
+documented backend does not yet include a comment-writing/read discussion
+feature for this view.
+
+### `SearchView.vue`: discovery
+
+The navbar sends users here with a `q` query parameter. The view watches that
+route query and runs the search.
+
+For each submitted query it concurrently loads:
+
+- `searchContent(text)` for API post/title and username results.
+- `getCommunities()` and then filters community names client-side.
+
+It renders three tabs:
+
+- Posts, reusing `PostCard`.
+- Communities, with join/leave actions.
+- People, linking to public profiles.
+
+### `ProfileView.vue`: identity and activity
+
+For ordinary users the view:
+
+1. Calls `getProfile(username)`.
+2. Stores both `profile` display data and `viewer` permission state.
+3. Loads the initially selected `posts` activity tab.
+
+`viewer` determines the available actions:
+
+| State | Action shown |
+| --- | --- |
+| `viewer.canMessage` | Chat link to `/inbox?with=<username>`. |
+| Authenticated and not self | Follow/Following button. |
+| `viewer.isSelf` | Change username button and Saved tab. |
+
+Tabs currently displayed by this implementation are:
+
+- `Posts`
+- `Comments`
+- `Saved`, only for the owner
+
+Although the API documents an `overview` activity type, this current view
+defaults to `posts` and does not display an Overview tab.
+
+For API activity posts, the view normalizes incomplete item shapes and tries
+to load each full post with `getPost()` so `PostCard` receives consistent
+fields. The posts tab displays one post at a time with Previous/Next paging;
+when needed, Next loads another cursor page.
+
+For a username change, the page calls `updateUsername()`, updates the shared
+cached auth user, and replaces the current profile route with the new
+username.
+
+#### Team profile fallback
+
+If `getProfile()` fails specifically with `Profile not found.` and the
+username exists in `teamProfilesByUsername`, the page renders the local team
+profile instead.
+
+Local team profiles:
+
+- Display one generated local spotlight post.
+- Do not support backend follow/chat behavior.
+- Have no comment or saved activity.
+
+### `TeamView.vue`: local team showcase
+
+`/team` imports `teamMembers` from `src/data/teamProfiles.js` and displays:
+
+- A hero with summary statistics.
+- Cards for each contributor.
+- Student IDs, bios, and page ownership.
+- Links to each member's profile route.
+
+`teamProfiles.js` contains five static profiles and builds:
+
+- `teamMembers`: contributor cards.
+- `teamProfilesByUsername`: profile fallback records.
+- `teamPosts`: local posts with generated SVG data-URL images.
+- `teamPostsByUsername`: posts for local profile display.
+- `teamPostsById`: local post detail fallback.
+
+This local content is presentation data, not server content, and posts carry
+`localOnly: true` to prevent invalid API write actions.
+
+### `LoginView.vue` and `RegisterView.vue`: authentication
+
+These views are full-page forms without `AppShell`.
+
+Login:
+
+- Accepts username or email and password.
+- Validates required fields and a minimum password length locally.
+- Calls `login()`, then `saveAuthSession()`, then navigates to home.
+
+Registration:
+
+- Accepts email, username, password, and confirmation.
+- Validates the same principal account constraints described by the API:
+  username format, valid email, and a password containing uppercase,
+  lowercase, and a number.
+- Shows a visual password strength indicator.
+- Calls `register()`, saves auth display state, then navigates home.
+
+Backend validation remains authoritative even though the browser validates
+before making a request.
+
+### `NotificationsView.vue`: account events
+
+The notification page first loads stored notifications with
+`getNotifications()`, supports All/Unread visual filtering, and listens for
+live `notification:new` events.
+
+It supports these current notification types:
+
+| Type | Icon/route behavior |
+| --- | --- |
+| `post_created` | Opens the related `/post/:postId`. |
+| `new_follower` | Opens the related person's `/profile/:username`. |
+| `mutual_follow` | Opens `/inbox?with=<username>` so the newly available chat can start. |
+
+It obtains a username from `targetUsername`, or falls back to `actor` /
+`actorUsername`.
+
+### `ChatView.vue`: community chat
+
+This page is for conversations inside communities.
+
+Initial flow:
+
+1. Connect to the shared socket.
+2. Register handlers for socket connection, messages, typing, reads, and
+   reactions.
+3. REST-load communities.
+4. If the route is `/chat/:roomId`, select that community.
+5. If the current user has joined the community, REST-load its message history.
+6. Emit `community:join`.
+7. Enable sending only after the server acknowledges successful room join.
+
+Why both REST and sockets?
 
 ```text
-VITE_API_BASE_URL=/api
+REST getCommunityMessages() = existing saved history when room opens
+Socket events                = new changes appearing immediately afterwards
 ```
 
-Keep `credentials: 'include'` on fetch calls and `withCredentials: true` on
-Socket.IO. Connect Socket.IO to the Vite origin (for example `io()` with no
-remote URL), not directly to the Railway host.
+Community actions:
 
-Railway still needs `FRONTEND_ORIGIN=http://localhost:5173` for proxied
-WebSocket handshakes. Do not copy `COOKIE_SAME_SITE=lax` from `.env.example`
-into Railway; hosted deploys should use `none` and `Secure` (the default when
-Railway variables are present).
+| User action | Communication |
+| --- | --- |
+| Join/leave community membership | REST `joinCommunity()` / `leaveCommunity()`. |
+| Enter/leave visible live room | Socket `community:join` / `community:leave`. |
+| Send message | Socket `community:message:send`. |
+| Start/stop typing | Socket `community:typing`. |
+| Mark viewed messages | Socket `community:read`. |
+| Set/remove reaction | Socket `community:reaction:set` / `community:reaction:remove`. |
 
-### Alternative: Call Railway Directly
+Messages acknowledged after sending are appended immediately. Incoming
+broadcast copies are deduplicated by message ID. If the socket reconnects,
+`handleConnect()` joins the selected room again, because Socket.IO room
+membership does not survive a disconnect.
 
-Point the frontend at the deployed API:
+The user must have joined the community to read or send community chat.
 
-```text
-VITE_API_BASE_URL=https://<railway-api-domain>/api
-```
+### `InboxView.vue`: direct messages
 
-Railway variables:
+Direct messages are available only between users who mutually follow each
+other.
 
-```text
-FRONTEND_ORIGIN=https://<production-frontend>,http://localhost:5173
-COOKIE_SECURE=true
-COOKIE_SAME_SITE=none
-```
+Initial flow:
 
-Do not set `COOKIE_SAME_SITE=lax` or `COOKIE_SECURE=false` on Railway. Those
-values prevent the browser from sending the session cookie from localhost to
-the deployed API.
+1. Connect/register direct-message socket listeners.
+2. REST-load mutual-follow conversation summaries from
+   `getDirectConversations()`.
+3. If the route contains `?with=username`, automatically open that
+   conversation.
+4. When selected, load direct history and the other person's profile in
+   parallel.
+5. Emit `direct:join`.
+6. Enable sending after successful acknowledgement.
+7. Mark visible messages read.
 
-Verify in DevTools:
+Conversation rows show display name/avatar, latest message preview, and
+unread count. Realtime `direct:conversation` payloads add/update a row and
+move it to the top.
 
-1. `POST .../api/auth/login` returns `200` and `Set-Cookie: reddit_session=...`.
-2. The next `GET .../api/auth/session` includes `Cookie: reddit_session=...`.
-3. `401` on `/api/auth/session` before login, or after logout, is normal.
+Direct actions:
 
-Use clean Express routes only. Do not call any former `.php` routes.
+| User action | Communication |
+| --- | --- |
+| Load conversation list | REST `GET /chats/conversations`. |
+| Load message history | REST `GET /chats/users/:username/messages`. |
+| Follow person from blocked chat | REST `followProfile()`. |
+| Join/leave live direct room | Socket `direct:join` / `direct:leave`. |
+| Send message | Socket `direct:message:send`. |
+| Typing | Socket `direct:typing`. |
+| Read/seen status | Socket `direct:read`. |
+| Set/remove reaction | Socket `direct:reaction:set` / `direct:reaction:remove`. |
 
-```text
-POST /api/auth/register
-POST /api/auth/login
-GET  /api/auth/session
-POST /api/auth/logout
-GET  /api/profiles/:username
-GET  /api/profiles/:username/activity?type=overview&limit=20&cursor=<cursor>
-GET  /api/me/saved?limit=20&cursor=<cursor>
-GET  /api/posts?sort=best&limit=20&cursor=<cursor>
-POST /api/posts
-GET  /api/posts/:postId
-PATCH /api/posts/:postId
-DELETE /api/posts/:postId
-PUT  /api/posts/:postId/vote
-PUT  /api/posts/:postId/saved
-DELETE /api/posts/:postId/saved
-GET  /api/search?q=<text>&limit=10
-GET  /api/communities
-POST /api/communities/:name/join
-DELETE /api/communities/:name/join
-POST /api/profiles/:username/follow
-DELETE /api/profiles/:username/follow
-GET  /api/chats/communities/:name/messages
-GET  /api/chats/users/:username/messages
-GET  /api/chats/conversations?limit=30&cursor=<cursor>
-POST /api/chats/conversations/:username/read
-POST /api/chats/communities/:name/read
-PUT  /api/chats/users/:username/messages/:messageId/reaction
-DELETE /api/chats/users/:username/messages/:messageId/reaction
-PUT  /api/chats/communities/:name/messages/:messageId/reaction
-DELETE /api/chats/communities/:name/messages/:messageId/reaction
-GET  /api/notifications
-PATCH /api/me/username
-GET  /api/health
-```
+If the conversation-list endpoint returns `404`, the UI displays that inbox
+sync is not available yet. This is compatibility behavior for a backend that
+has not implemented `GET /api/chats/conversations`.
 
-## Response Conventions
+## 11. REST Data Contract Used By The Frontend
 
-Every API response is JSON. A successful response contains:
+The definitive expected API contract is in `API.md`. Every REST response is
+expected to include:
 
 ```json
 { "success": true }
 ```
 
-or, for endpoints returning the authenticated user:
+or:
 
 ```json
-{
-  "success": true,
-  "user": {
-    "id": 1,
-    "username": "sample_user",
-    "email": "sample@example.com",
-    "joinDate": "2026-05-25T00:00:00.000Z"
-  }
-}
+{ "success": false, "error": "User-facing error message." }
 ```
 
-An unsuccessful response contains:
+Primary endpoints expected by source code:
 
-```json
-{
-  "success": false,
-  "error": "A user-facing error message."
-}
-```
-
-During local backend development only, unexpected `500` responses may also
-include a `details` string. The frontend should not depend on `details` or
-show it to users.
-
-### User Object
-
-| Field | Type | Description |
-| --- | --- | --- |
-| `id` | number | Database user identifier. |
-| `username` | string | Registered display/login username. |
-| `email` | string | Registered email address, stored lowercase. |
-| `joinDate` | string | ISO 8601 timestamp for account creation. |
-
-## Authentication And Cookies
-
-Registration and login set the configured session cookie, named
-`reddit_session` by default. The cookie is:
-
-- `HttpOnly`, so JavaScript cannot access it.
-- Sent for `/` requests.
-- Valid for 30 days by default.
-- `Secure` and `SameSite=None` in a cross-site production frontend/API setup.
-
-The frontend should store user display state only if needed for immediate UI
-rendering. It must treat `GET /api/auth/session` as the authoritative way to
-confirm authentication after reload.
-
-For a separately hosted frontend and API:
-
-- Backend must set `FRONTEND_ORIGIN` to the exact frontend origin.
-- Backend must use `COOKIE_SECURE=true` and `COOKIE_SAME_SITE=none`.
-- Frontend requests must use `credentials: 'include'`.
-
-### Diagnosing `401` In Deployment
-
-A browser console message saying a resource returned `401` is not enough to
-identify a backend fault. Inspect the failed request URL and JSON body:
-
-| Request | When `401` Is Expected |
+| Area | Endpoint |
 | --- | --- |
-| `GET /api/auth/session` | A guest opens the application or a saved session expired. The frontend should clear auth state without showing a fatal error. |
-| `GET /api/me/saved` | A user is not logged in but attempts to view Saved. |
-| `GET /api/notifications` | A user is not logged in but attempts to load notifications. |
-| Socket.IO connection | The chat socket was created without a current login session cookie. Do not connect chat for guest users. |
+| Authentication | `POST /api/auth/register` |
+| Authentication | `POST /api/auth/login` |
+| Authentication | `GET /api/auth/session` |
+| Authentication | `POST /api/auth/logout` |
+| Feed/posts | `GET /api/posts?sort=...&limit=...&cursor=...` |
+| Feed/posts | `POST /api/posts` |
+| Feed/posts | `GET /api/posts/:postId` |
+| Feed/posts | `PUT /api/posts/:postId/vote` |
+| Feed/posts | `PUT`, `DELETE /api/posts/:postId/saved` |
+| Search | `GET /api/search?q=...` |
+| Community | `GET /api/communities` |
+| Community | `POST`, `DELETE /api/communities/:name/join` |
+| Profile | `GET /api/profiles/:username` |
+| Profile | `GET /api/profiles/:username/activity` |
+| Profile | `GET /api/me/saved` |
+| Profile | `POST`, `DELETE /api/profiles/:username/follow` |
+| Profile | `PATCH /api/me/username` |
+| Chat history | `GET /api/chats/communities/:name/messages` |
+| Inbox history | `GET /api/chats/users/:username/messages` |
+| Inbox list | `GET /api/chats/conversations` |
+| Notifications | `GET /api/notifications` |
 
-If `POST /api/auth/login` returns `200` but the immediately following
-`GET /api/auth/session`, notifications request, or chat socket fails with
-`401`, the browser did not store or send the session cookie. For a frontend
-and Railway API on different sites, verify:
+`API.md` additionally documents REST routes for read state and reactions, but
+the current chat/inbox Vue views implement those live interactions through
+Socket.IO events rather than calling the REST alternatives.
 
-```text
-FRONTEND_ORIGIN=https://<exact-frontend-domain>
-COOKIE_SECURE=true
-COOKIE_SAME_SITE=none
+## 12. Socket.IO Event Contract Used By The Frontend
+
+### Shared connection
+
+The socket uses the same origin derived from `API_BASE_URL` and includes the
+authentication cookie:
+
+```js
+io(API_ORIGIN, {
+  autoConnect: false,
+  withCredentials: true,
+})
 ```
 
-Railway runtime variables are now detected automatically so deployed session
-cookies default to `Secure` and `SameSite=None` even when `NODE_ENV` was not
-set. Explicit `COOKIE_*` variables still override those defaults. The
-frontend must continue using `credentials: 'include'` for API requests and
-`withCredentials: true` for Socket.IO.
+An unauthenticated socket is expected to fail with
+`Authentication required.`.
 
-## API Endpoints
+### Community events
 
-### Register
+| Direction | Event | Main payload/result |
+| --- | --- | --- |
+| Client to server | `community:join` | `{ community }`, acknowledged before send is enabled. |
+| Client to server | `community:leave` | `{ community }`. |
+| Client to server | `community:message:send` | `{ community, body }`, ack returns message. |
+| Server to clients | `community:message` | `{ community, message }`. |
+| Both directions | `community:typing` | Community, username, and typing state. |
+| Both directions | `community:read` | Community and read message IDs. |
+| Client to server | `community:reaction:set` / `:remove` | Community, message ID, optional reaction. |
+| Server to clients | `community:reaction` | New reaction counts/viewer state. |
 
-Creates a user account, immediately creates a session, and sets the session
-cookie.
+### Direct-message events
 
-```http
-POST /api/auth/register
-Content-Type: application/json
-```
+| Direction | Event | Main payload/result |
+| --- | --- | --- |
+| Client to server | `direct:join` | `{ username }`, acknowledged before send is enabled. |
+| Client to server | `direct:leave` | `{ username }`. |
+| Client to server | `direct:message:send` | `{ username, body }`, ack returns message. |
+| Server to clients | `direct:message` | `{ with, message }`. |
+| Both directions | `direct:typing` | Conversation user and typing state. |
+| Both directions | `direct:read` | Conversation and read message IDs. |
+| Client to server | `direct:reaction:set` / `:remove` | User, message ID, optional reaction. |
+| Server to clients | `direct:reaction` | New reaction counts/viewer state. |
+| Server to client | `direct:conversation` | Conversation summary for inbox/toast updates. |
 
-Request body:
+### Notification event
 
-```json
-{
-  "username": "sample_user",
-  "email": "sample@example.com",
-  "password": "Password1"
-}
-```
+| Direction | Event | Main payload |
+| --- | --- | --- |
+| Server to client | `notification:new` | `{ notification }` |
 
-Validation rules:
+## 13. Authentication And Permission Rules
 
-| Field | Rules |
+The UI depends on backend authorization:
+
+| Action | Permission expected by backend |
 | --- | --- |
-| `username` | 3 to 20 letters, numbers, or underscores. |
-| `email` | Valid email format, maximum 191 characters; normalized to lowercase. |
-| `password` | At least 8 characters, including uppercase, lowercase, and a number. |
+| Read public feed/search/profile | Available publicly, with optional viewer-specific state. |
+| Create/vote/save post | Logged-in session. |
+| View Saved profile tab | Logged-in owner only. |
+| Follow/unfollow user | Logged-in session. |
+| Change username | Logged-in owner. |
+| Read/send community messages | Logged in and joined that community. |
+| Read/send direct messages | Logged in and mutual follow exists. |
+| Notifications/inbox listing | Logged-in session. |
 
-Success, `201 Created`:
+The frontend may hide controls, but the backend must enforce the rule because
+browser code can be bypassed.
 
-```json
-{
-  "success": true,
-  "user": {
-    "id": 1,
-    "username": "sample_user",
-    "email": "sample@example.com",
-    "joinDate": "2026-05-25T00:00:00.000Z"
-  }
-}
-```
-
-Validation failures, `400 Bad Request`:
-
-```json
-{ "success": false, "error": "Enter a valid email address." }
-```
-
-```json
-{ "success": false, "error": "Username must be 3-20 letters, numbers, or underscores." }
-```
-
-```json
-{ "success": false, "error": "Password must be 8+ characters with uppercase, lowercase, and a number." }
-```
-
-Duplicate account, `409 Conflict`:
-
-```json
-{ "success": false, "error": "That username or email is already registered." }
-```
-
-Frontend example:
-
-```js
-export async function register({ username, email, password }) {
-  const response = await fetch(`${API_BASE_URL}/auth/register`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, email, password }),
-  });
-
-  return response.json();
-}
-```
-
-### Login
-
-Authenticates an existing user by username or email, creates a new session,
-and sets the session cookie.
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-```
-
-Request body:
-
-```json
-{
-  "identifier": "sample_user",
-  "password": "Password1"
-}
-```
-
-`identifier` may contain the username or email. Email login is normalized to
-lowercase by the API.
-
-Success, `200 OK`:
-
-```json
-{
-  "success": true,
-  "user": {
-    "id": 1,
-    "username": "sample_user",
-    "email": "sample@example.com",
-    "joinDate": "2026-05-25T00:00:00.000Z"
-  }
-}
-```
-
-Missing or invalid credentials, `401 Unauthorized`:
-
-```json
-{ "success": false, "error": "Invalid username, email, or password." }
-```
-
-Frontend example:
-
-```js
-export async function login({ identifier, password }) {
-  const response = await fetch(`${API_BASE_URL}/auth/login`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ identifier, password }),
-  });
-
-  return response.json();
-}
-```
-
-### Restore Current Session
-
-Checks the browser's session cookie and returns the authenticated user. Call
-this during application startup to restore login state.
-
-```http
-GET /api/auth/session
-```
-
-Success, `200 OK`:
-
-```json
-{
-  "success": true,
-  "user": {
-    "id": 1,
-    "username": "sample_user",
-    "email": "sample@example.com",
-    "joinDate": "2026-05-25T00:00:00.000Z"
-  }
-}
-```
-
-No cookie, expired session, or invalid session, `401 Unauthorized`:
-
-```json
-{ "success": false, "error": "Session expired or invalid." }
-```
-
-Frontend example:
-
-```js
-export async function restoreAuthSession() {
-  const response = await fetch(`${API_BASE_URL}/auth/session`, {
-    credentials: 'include',
-  });
-
-  return response.json();
-}
-```
-
-### Logout
-
-Invalidates the current session in PostgreSQL and clears the browser cookie.
-Logout is safe to call even when no session cookie is present.
-
-```http
-POST /api/auth/logout
-```
-
-Success, `200 OK`:
-
-```json
-{ "success": true }
-```
-
-Frontend example:
-
-```js
-export async function logout() {
-  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
-    method: 'POST',
-    credentials: 'include',
-  });
-
-  return response.json();
-}
-```
-
-### Health Check
-
-Confirms that the Express API can query PostgreSQL. This route is intended for
-deployment checks and service monitoring, not frontend authentication state.
-
-```http
-GET /api/health
-```
-
-Success, `200 OK`:
-
-```json
-{
-  "success": true,
-  "database": "connected",
-  "databaseName": "railway",
-  "serverVersion": "PostgreSQL ..."
-}
-```
-
-## Public Profile API
-
-Profile routes support the public `/profile/:username` page. They never return
-registration email, session data, or private account information. The
-frontend should still include credentials so the response can identify whether
-the current viewer owns the displayed profile.
-
-### Get Public Profile
-
-```http
-GET /api/profiles/sample_user
-```
-
-Success, `200 OK`:
-
-```json
-{
-  "success": true,
-  "profile": {
-    "username": "sample_user",
-    "displayName": null,
-    "bio": null,
-    "avatarUrl": null,
-    "bannerColor": null,
-    "postKarma": 0,
-    "commentKarma": 0,
-    "followers": 0,
-    "cakeDay": "2026-05-25T00:00:00.000Z",
-    "communities": []
-  },
-  "viewer": {
-    "isAuthenticated": false,
-    "isSelf": false,
-    "isFollowing": false,
-    "canMessage": false
-  }
-}
-```
-
-`username` is resolved case-insensitively and returned in its registered
-canonical form. The optional public profile fields are sourced from
-`user_profiles`:
-
-| Field | Type | Rules |
-| --- | --- | --- |
-| `displayName` | string or `null` | Maximum 50 characters. |
-| `bio` | string or `null` | Maximum 200 characters. |
-| `avatarUrl` | string or `null` | Stored only as an HTTPS URL. |
-| `bannerColor` | string or `null` | Hex color in `#RRGGBB` form. |
-
-`postKarma` is currently calculated from the signed-in user's public post
-scores. `followers` is counted from follows, and `communities` contains up to
-five joined communities. There is not yet a comment-writing API, so
-`commentKarma` currently returns `0`.
-
-When a valid session cookie is included, `viewer.isAuthenticated` is `true`,
-`viewer.isSelf` identifies the signed-in user's own profile,
-`viewer.isFollowing` reflects the current user's follow record, and
-`viewer.canMessage` is `true` only when viewing another user. A direct chat
-still requires both users to follow each other.
-
-Unknown username, `404 Not Found`:
-
-```json
-{ "success": false, "error": "Profile not found." }
-```
-
-Frontend example:
-
-```js
-export async function getPublicProfile(username) {
-  const response = await fetch(`${API_BASE_URL}/profiles/${encodeURIComponent(username)}`, {
-    credentials: 'include',
-  });
-
-  return response.json();
-}
-```
-
-### Get Public Activity
-
-```http
-GET /api/profiles/sample_user/activity?type=overview&limit=20
-```
-
-Accepted query parameters:
-
-| Parameter | Accepted Values | Default |
-| --- | --- | --- |
-| `type` | `overview`, `posts`, `comments` | `overview` |
-| `limit` | Integer from `1` to `50` | `20` |
-| `cursor` | Non-empty opaque string from a preceding response | none |
-
-`posts` and `overview` return the user's persisted public posts. There is not
-yet a comment-writing API, so `comments` currently returns an empty list.
-
-An empty response has this shape:
-
-```json
-{
-  "success": true,
-  "items": [],
-  "nextCursor": null
-}
-```
-
-The result shape is ready for future `post` and `comment` items without
-changing frontend pagination. A request for `type=saved` is never public:
-
-```json
-{ "success": false, "error": "Saved activity is private." }
-```
-
-This response uses `400 Bad Request`. Unknown profile usernames return the
-same `404` profile-not-found response as the profile endpoint.
-
-### Get Own Saved Items
-
-```http
-GET /api/me/saved?limit=20&cursor=<cursor>
-```
-
-This endpoint requires a valid signed-in session and uses the same pagination
-shape as public activity. It returns posts persisted through the save endpoint.
-When there are no saved posts, the response is:
-
-```json
-{
-  "success": true,
-  "items": [],
-  "nextCursor": null
-}
-```
-
-No valid session, `401 Unauthorized`:
-
-```json
-{ "success": false, "error": "You must be logged in to view saved posts." }
-```
-
-Frontend example:
-
-```js
-export async function getSavedItems({ limit = 20, cursor } = {}) {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (cursor) params.set('cursor', cursor);
-
-  const response = await fetch(`${API_BASE_URL}/me/saved?${params}`, {
-    credentials: 'include',
-  });
-
-  return response.json();
-}
-```
-
-## Home Feed And Posts API
-
-### Feed
-
-The home page loads persisted public posts through:
-
-```http
-GET /api/posts?sort=best&limit=20&cursor=<opaque-cursor>
-```
-
-`sort` accepts `best`, `hot`, `new`, `top`, and `rising`. The default is
-`best`. `limit` defaults to `20` and is restricted to `1` through `50`.
-
-Successful response, `200 OK`:
-
-```json
-{
-  "success": true,
-  "posts": [
-    {
-      "id": 1,
-      "community": "technology",
-      "communityColor": "#A855F7",
-      "author": "tech_guru",
-      "createdAt": "2026-05-25T03:15:00.000Z",
-      "flair": null,
-      "flairColor": null,
-      "title": "New breakthrough in quantum computing announced today",
-      "image": "https://images.example/post.jpg",
-      "text": "Description supplied by the author.",
-      "link": null,
-      "linkDomain": null,
-      "votes": 0,
-      "comments": 0,
-      "reactions": 0,
-      "userVote": 0,
-      "saved": false
-    }
-  ],
-  "nextCursor": null
-}
-```
-
-The backend returns `createdAt`, not text such as `"5 hours ago"`; the
-frontend formats relative display time. `userVote` and `saved` are populated
-for a valid included session cookie and use default values for anonymous
-visitors. `votes` is a net score and may be negative.
-
-### Create Post
-
-The initial post writer supports a title, one HTTPS image URL, and text
-description. A community is required so the post can be displayed in the
-feed. The user must be logged in.
-
-```http
-POST /api/posts
-Content-Type: application/json
-```
-
-```json
-{
-  "community": "technology",
-  "title": "New breakthrough in quantum computing announced today",
-  "image": "https://images.example/post.jpg",
-  "description": "A closer look at what this change means."
-}
-```
-
-Success, `201 Created`:
-
-```json
-{
-  "success": true,
-  "post": {
-    "id": 1,
-    "community": "technology",
-    "author": "tech_guru",
-    "title": "New breakthrough in quantum computing announced today",
-    "image": "https://images.example/post.jpg",
-    "text": "A closer look at what this change means.",
-    "votes": 0,
-    "comments": 0,
-    "reactions": 0,
-    "userVote": 0,
-    "saved": false
-  }
-}
-```
-
-Creating a post also inserts a `post_created` notification for the author.
-Only HTTPS image URLs are accepted. Link posts, comments, and reactions are
-reserved for later endpoints.
-
-### Edit Or Delete Own Post
-
-Only the authenticated author of a public post can edit or delete it. Requests
-by another user return `404` so the API does not disclose private ownership
-details. The frontend should show edit and delete controls only when the
-signed-in session username matches the post `author`; the backend still
-performs the authoritative ownership check.
-
-Update one or more editable fields:
-
-```http
-PATCH /api/posts/:postId
-Content-Type: application/json
-```
-
-```json
-{
-  "title": "Updated title",
-  "description": "Updated description.",
-  "image": "https://images.example/updated-post.jpg",
-  "community": "technology"
-}
-```
-
-The editable fields are `title`, `description`/`text`, `image`/`imageUrl`,
-and `community`. Use `null` for `description` or `image` to remove it. Fields
-not supplied are retained. Success, `200 OK`, returns the same complete post
-object shape returned by the feed and post-detail endpoint:
-
-```json
-{
-  "success": true,
-  "post": {
-    "id": 1,
-    "community": "technology",
-    "communityColor": "#A855F7",
-    "author": "tech_guru",
-    "createdAt": "2026-05-25T03:15:00.000Z",
-    "flair": null,
-    "flairColor": null,
-    "title": "Updated title",
-    "image": "https://images.example/updated-post.jpg",
-    "text": "Updated description.",
-    "link": null,
-    "linkDomain": null,
-    "votes": 0,
-    "comments": 0,
-    "reactions": 0,
-    "userVote": 0,
-    "saved": false
-  }
-}
-```
+## 14. Styling And Responsive Layout
 
-Delete a post:
+`src/style.css` defines global Reddit-like design tokens, for example:
 
-```http
-DELETE /api/posts/:postId
+```css
+--reddit-orange
+--reddit-blue
+--reddit-surface-inset
+--reddit-text-secondary
+--reddit-border-soft
+--font-main
+--font-mono
 ```
 
-Success, `200 OK`:
+Each component then uses scoped CSS for its own layout and appearance.
 
-```json
-{ "success": true }
-```
-
-Deletion is soft deletion: the post is marked deleted and no longer appears
-in public feed, post detail, search, profile activity, or saved-item results.
-
-Mutation errors:
-
-```http
-401 Unauthorized
-{ "success": false, "error": "Session expired or invalid." }
-
-404 Not Found
-{ "success": false, "error": "Post not found." }
-```
-
-`404` is returned when the post is absent, already deleted, or belongs to
-another user. Validation errors such as a missing update field or a non-HTTPS
-image URL return `400` with a user-facing `error` message.
-
-### Post Viewer Actions
-
-```http
-GET    /api/posts/:postId
-PUT    /api/posts/:postId/vote
-PUT    /api/posts/:postId/saved
-DELETE /api/posts/:postId/saved
-```
-
-Voting and saving require authentication. Vote body:
-
-```json
-{ "vote": 1 }
-```
-
-Values are `1` for upvote, `-1` for downvote, and `0` to remove the current
-vote. Each success returns `{ "success": true, "post": <post-object> }`.
-
-## Search API
-
-The home search matches canonical usernames and public post titles:
-
-```http
-GET /api/search?q=tech&limit=10
-```
-
-`q` is required and must be 2 to 100 characters. `limit` defaults to `10` and
-has a maximum of `20`.
-
-```json
-{
-  "success": true,
-  "query": "tech",
-  "users": [{ "username": "tech_guru" }],
-  "posts": []
-}
-```
-
-## Communities API
-
-The backend seeds these communities for the current frontend:
-
-```text
-r/technology
-r/programming
-r/worldnews
-r/science
-r/artificial
-r/personalfinance
-r/MachineLearning
-r/datascience
-```
-
-The four explicitly requested community cards are `artificial`,
-`personalfinance`, `MachineLearning`, and `datascience`.
-
-List communities:
-
-```http
-GET /api/communities
-```
-
-```json
-{
-  "success": true,
-  "communities": [
-    {
-      "name": "artificial",
-      "color": "#8B5CF6",
-      "avatarUrl": null,
-      "memberCount": 0,
-      "joined": false
-    }
-  ]
-}
-```
-
-Join or leave, authenticated:
-
-```http
-POST   /api/communities/artificial/join
-DELETE /api/communities/artificial/join
-```
-
-Only a joined user is authorized to load or send messages in that community's
-chat.
-
-## Follows And Chat API
-
-### Follow Gating
-
-Direct chat is enabled only once both users follow one another:
-
-```http
-POST   /api/profiles/:username/follow
-DELETE /api/profiles/:username/follow
-```
-
-Success response:
-
-```json
-{
-  "success": true,
-  "viewer": {
-    "username": "other_user",
-    "isFollowing": true
-  }
-}
-```
-
-### Inbox Conversations
-
-The Inbox page discovers eligible direct conversations using:
-
-```http
-GET /api/chats/conversations?limit=30&cursor=<opaque-cursor>
-```
-
-This route requires authentication and returns only mutual follows. A
-conversation appears immediately when mutual follow authorization exists,
-even if no messages have been sent.
-
-```json
-{
-  "success": true,
-  "conversations": [
-    {
-      "username": "other_user",
-      "displayName": "Other User",
-      "avatarUrl": null,
-      "lastMessage": {
-        "id": 12,
-        "sender": "other_user",
-        "body": "See you there.",
-        "createdAt": "2026-05-26T01:20:00.000Z"
-      },
-      "unreadCount": 1
-    },
-    {
-      "username": "new_mutual",
-      "displayName": null,
-      "avatarUrl": null,
-      "lastMessage": null,
-      "unreadCount": 0
-    }
-  ],
-  "nextCursor": null
-}
-```
-
-Conversations sort by latest message descending; mutual follows with no
-messages appear after messaged conversations. When signed out:
-
-```json
-{ "success": false, "error": "You must be logged in to view messages." }
-```
-
-An open Socket.IO connection receives:
-
-```text
-direct:conversation  { "conversation": <conversation-object> }
-```
-
-The server emits this after a direct message updates a preview, after a read
-operation changes unread state through Socket.IO, and when a follow action
-creates mutual authorization.
-
-### Message History
-
-Both message-history endpoints require authentication and return stored
-messages in display order:
-
-```http
-GET /api/chats/communities/:name/messages?limit=20&cursor=<cursor>
-GET /api/chats/users/:username/messages?limit=20&cursor=<cursor>
-```
-
-Community history returns `403` unless the requester has joined the community.
-Direct history returns `403` unless the two users mutually follow.
-
-```json
-{
-  "success": true,
-  "community": "artificial",
-  "messages": [
-    {
-      "id": 1,
-      "sender": "sample_user",
-      "body": "Hello everyone.",
-      "createdAt": "2026-05-25T03:15:00.000Z"
-    }
-  ],
-  "nextCursor": null
-}
-```
-
-For direct messages, the response replaces `community` with
-`"with": "other_user"`.
-
-Messages returned from chat history and new-message socket events include
-message state:
-
-```json
-{
-  "id": 12,
-  "sender": "other_user",
-  "body": "See you there.",
-  "createdAt": "2026-05-26T01:20:00.000Z",
-  "seen": true,
-  "seenAt": "2026-05-26T01:21:00.000Z",
-  "reactions": [
-    { "reaction": "love", "count": 2 }
-  ],
-  "viewerReaction": "love"
-}
-```
-
-For community messages, `seenAt` is replaced by `seenByCount`, the number of
-other members who have marked that message read.
-
-### Seen And Unread State
+Important responsive behavior:
 
-When the user opens a visible direct conversation, mark incoming messages as
-read through REST:
-
-```http
-POST /api/chats/conversations/:username/read
-```
-
-For a community room:
-
-```http
-POST /api/chats/communities/:name/read
-```
-
-Example response:
-
-```json
-{
-  "success": true,
-  "with": "other_user",
-  "messageIds": [12, 13],
-  "readAt": "2026-05-26T01:21:00.000Z"
-}
-```
-
-For immediate sender-side seen indicators while both users are online, emit
-the equivalent Socket.IO events documented below. Direct-message unread
-counts in `/api/chats/conversations` are derived from persisted `read_at`.
-
-### Message Reactions
-
-Each user may choose at most one reaction per message. Setting a different
-reaction replaces their current selection; deleting it removes their
-selection. The server accepts exactly these five reaction identifiers:
-
-```text
-like
-love
-laugh
-surprised
-sad
-```
-
-The frontend chooses the matching icon presentation. Any other reaction is
-rejected with `400`.
-
-REST routes:
-
-```http
-PUT    /api/chats/users/:username/messages/:messageId/reaction
-DELETE /api/chats/users/:username/messages/:messageId/reaction
-PUT    /api/chats/communities/:name/messages/:messageId/reaction
-DELETE /api/chats/communities/:name/messages/:messageId/reaction
-```
-
-Set request body:
-
-```json
-{ "reaction": "love" }
-```
-
-Success:
-
-```json
-{
-  "success": true,
-  "messageId": 12,
-  "reactions": [{ "reaction": "love", "count": 2 }],
-  "viewerReaction": "love"
-}
-```
-
-### Socket.IO Realtime Messages
-
-Connect Socket.IO to the same backend host with the session cookie included:
-
-```js
-import { io } from 'socket.io-client';
-
-const socket = io(API_ORIGIN, { withCredentials: true });
-```
-
-The socket handshake requires a valid login cookie.
-
-Community events:
-
-| Direction | Event | Payload |
-| --- | --- | --- |
-| client -> server | `community:join` | `{ "community": "artificial" }` |
-| client -> server | `community:leave` | `{ "community": "artificial" }` |
-| client -> server | `community:message:send` | `{ "community": "artificial", "body": "Hello" }` |
-| server -> client | `community:message` | `{ "community": "artificial", "message": { ... } }` |
-| client -> server | `community:typing` | `{ "community": "artificial", "isTyping": true }` |
-| server -> room | `community:typing` | `{ "community": "artificial", "username": "sample_user", "isTyping": true }` |
-| client -> server | `community:read` | `{ "community": "artificial" }` |
-| server -> room | `community:read` | `{ "community": "artificial", "messageIds": [1], "readAt": "...", "username": "sample_user" }` |
-| client -> server | `community:reaction:set` | `{ "community": "artificial", "messageId": 1, "reaction": "love" }` |
-| client -> server | `community:reaction:remove` | `{ "community": "artificial", "messageId": 1 }` |
-| server -> room | `community:reaction` | `{ "community": "artificial", "messageId": 1, "reactions": [...], "actor": "sample_user", "actorReaction": "love" }` |
-
-Direct message events:
-
-| Direction | Event | Payload |
-| --- | --- | --- |
-| client -> server | `direct:join` | `{ "username": "other_user" }` |
-| client -> server | `direct:leave` | `{ "username": "other_user" }` |
-| client -> server | `direct:message:send` | `{ "username": "other_user", "body": "Hello" }` |
-| server -> client | `direct:message` | `{ "with": "other_user", "message": { ... } }` |
-| client -> server | `direct:typing` | `{ "username": "other_user", "isTyping": true }` |
-| server -> room | `direct:typing` | `{ "with": "other_user", "username": "other_user", "isTyping": true }` |
-| client -> server | `direct:read` | `{ "username": "other_user" }` |
-| server -> room | `direct:read` | `{ "with": "other_user", "messageIds": [12], "readAt": "...", "by": "other_user" }` |
-| client -> server | `direct:reaction:set` | `{ "username": "other_user", "messageId": 12, "reaction": "love" }` |
-| client -> server | `direct:reaction:remove` | `{ "username": "other_user", "messageId": 12 }` |
-| server -> room | `direct:reaction` | `{ "with": "other_user", "messageId": 12, "reactions": [...], "actor": "other_user", "actorReaction": "love" }` |
-| server -> client | `direct:conversation` | `{ "conversation": { ... } }` |
-
-Send/join events accept Socket.IO acknowledgements. A successful
-acknowledgement begins with `{ "success": true }`; authorization or validation
-failures return `{ "success": false, "error": "..." }`.
-
-The frontend must wait for a successful `community:join` or `direct:join`
-acknowledgement before enabling message sending. The backend rejects sends
-from sockets that have not joined the corresponding room. When switching away
-from an open conversation, emit the corresponding `:leave` event so that old
-room broadcasts are no longer shown.
-
-Socket.IO rooms do not survive a disconnect. After every reconnect, the
-frontend must emit `community:join` or `direct:join` again for the currently
-visible conversation before enabling send.
-
-Community membership is rechecked at send and broadcast time. If a user is no
-longer a member after previously joining a socket room, that socket no longer
-receives community broadcasts. Direct-message send authorization continues to
-require mutual follows.
-
-## Notifications API
-
-The backend creates notifications for:
-
-- `post_created`: the signed-in user publishes a post.
-- `new_follower`: another user starts following the signed-in user; this does
-  not require a reciprocal follow.
-- `mutual_follow`: a second follow completes a reciprocal follow relationship,
-  enabling direct chat for both users.
-
-Fetch notification page data with:
-
-```http
-GET /api/notifications?limit=20&cursor=<cursor>
-```
-
-```json
-{
-  "success": true,
-  "notifications": [
-    {
-      "id": 1,
-      "type": "post_created",
-      "message": "Your post has been published.",
-      "postId": 1,
-      "actor": "sample_user",
-      "read": false,
-      "createdAt": "2026-05-25T03:15:00.000Z"
-    },
-    {
-      "id": 2,
-      "type": "new_follower",
-      "message": "u/other_user followed you.",
-      "postId": null,
-      "actor": "other_user",
-      "targetUsername": "other_user",
-      "read": false,
-      "createdAt": "2026-05-26T10:19:30.000Z"
-    },
-    {
-      "id": 3,
-      "type": "mutual_follow",
-      "message": "You and u/other_user now follow each other. You can start chatting.",
-      "postId": null,
-      "actor": "other_user",
-      "targetUsername": "other_user",
-      "read": false,
-      "createdAt": "2026-05-26T10:20:30.000Z"
-    }
-  ],
-  "nextCursor": null
-}
-```
-
-For `new_follower`, only the followed user receives the notification.
-`targetUsername` identifies the new follower; the frontend should use it when
-linking to that user's profile:
-
-```text
-/profile/<targetUsername>
-```
-
-For `mutual_follow`, both users receive one notification. The
-`targetUsername` value is the canonical route target for:
-
-```text
-/inbox?with=<targetUsername>
-```
-
-For notification types without a user target, including `post_created`,
-`targetUsername` is `null`.
-
-Repeated follow requests while an existing follow is active do not generate
-duplicate `new_follower` or `mutual_follow` notifications. If a user
-unfollows, notifications belonging to that active relationship are removed;
-following again creates fresh applicable notifications.
-
-Connected authenticated clients also receive:
-
-```text
-notification:new  { "notification": <notification-object> }
-```
-
-for newly created `new_follower` and `mutual_follow` notifications.
-`direct:conversation` is emitted only when `mutual_follow` enables chat.
-
-## Current User Details API
-
-Public posted content is available from:
-
-```http
-GET /api/profiles/:username/activity?type=posts
-```
-
-The signed-in user can change their username, subject to the same registration
-format and case-insensitive uniqueness rules:
-
-```http
-PATCH /api/me/username
-Content-Type: application/json
-
-{ "username": "updated_name" }
-```
-
-Success:
-
-```json
-{ "success": true, "user": { "username": "updated_name" } }
-```
-
-Conflict, `409`:
-
-```json
-{ "success": false, "error": "That username is already registered." }
-```
+- The shell's sidebar hides on narrower screens.
+- Home hides its right rail on smaller widths.
+- Chat and inbox show their list side only on narrow mobile widths; the
+  conversation panel is hidden in the current CSS at widths below `760px`.
 
-## Database Model
+## 15. Backend Documentation Files: What They Mean Now
 
-| Table | Purpose |
+| Document | How to interpret it |
 | --- | --- |
-| `users`, `auth_sessions` | Existing authentication identity and hashed cookie sessions. |
-| `user_profiles` | Optional public display fields. |
-| `communities` | Public community metadata and seeded community names. |
-| `community_memberships` | Join records; authorization source for community chat. |
-| `posts` | Public post title, description, image URL, community, author, counts, visibility, and time. |
-| `post_votes`, `saved_posts` | Per-viewer home/profile state. |
-| `user_follows` | Follow records; reciprocal rows authorize direct chat. |
-| `community_messages` | Member-only persisted community messages. |
-| `community_message_reads` | Per-member community seen state. |
-| `community_message_reactions` | Per-member reactions restricted to five supported values. |
-| `direct_messages` | Persisted messages between mutually-following users, including recipient `read_at`. |
-| `direct_message_reactions` | Per-user direct-message reactions restricted to five supported values. |
-| `notifications` | Notification page items, including post-created, new-follower, and mutual-follow chat-available events; `related_user_id` identifies the related user when applicable. |
+| `API.md` | Main desired/current Express API contract used by frontend code. |
+| `README.md` | Short setup and data-boundary introduction. |
+| `profile_api.md` | Profile integration notes; partially older because the current profile UI now has local team fallback and posts-first paging. |
+| `REALTIME_CHAT_BACKEND_HANDOFF.md` | Explains prior socket delivery/reconnect fixes and the realtime contract. |
+| `INBOX_CONVERSATIONS_API.md` | Originally requested the conversations endpoint; current source already calls it and handles `404` as not yet available. |
+| `FOLLOW_NOTIFICATION_BACKEND.md` | Handoff for backend mutual-follow notifications. `API.md` describes that contract as available/expected. |
+| `AUTH_EXPRESS_RAILWAY_HANDOFF.md` | Historical migration brief from PHP/MariaDB endpoints to Express/Railway. The current frontend already calls clean Express paths; no PHP source exists in this checkout. |
 
-## General Error Responses
+## 16. Important Current Limitations And Differences
 
-Invalid JSON request body, `400 Bad Request`:
+These details prevent confusion while developing:
 
-```json
-{ "success": false, "error": "Request body must be valid JSON." }
+1. **Backend source is absent here.** `API.md` describes the server expected by
+   this frontend, but only frontend implementation is in this repository.
+
+2. **Comments are not functional.** Post detail displays a discussion
+   placeholder; the backend documentation also states comment-writing is not
+   yet provided.
+
+3. **Team content is intentionally local.** `/team` profiles/posts are static
+   showcase data and should not be treated as persisted users/posts.
+
+4. **Profile UI differs from older notes.** The current profile page defaults
+   to a `Posts` tab, not `Overview`, and includes one-at-a-time post paging.
+
+5. **Current Inbox has no user search form.** `INBOX_CONVERSATIONS_API.md`
+   mentions retained username search, but the checked-out `InboxView.vue`
+   relies on conversation rows or an incoming `/inbox?with=username` route.
+
+6. **Notification fallback aliases are not implemented in current source.**
+   `FOLLOW_NOTIFICATION_BACKEND.md` says aliases such as `follow_matched` and
+   `chat_unlocked` are supported, but `NotificationsView.vue` explicitly
+   routes `new_follower` and `mutual_follow`. The backend should use the
+   canonical `mutual_follow` type documented in `API.md`.
+
+7. **No frontend automated tests or lint command are configured.**
+   `package.json` contains development/build/preview scripts only.
+
+## 17. Practical Reading Order For A New Developer
+
+Read in this order to build understanding without being overwhelmed:
+
+1. `src/router/index.js` to see all pages.
+2. `src/main.js`, `src/App.vue`, and `src/components/AppShell.vue` to see app
+   startup and layout.
+3. `src/services/api.js`, `auth.js`, `realtime.js`, and `format.js` to learn
+   where data comes from.
+4. `src/views/HomeView.vue` and `src/components/PostCard.vue` for the simplest
+   complete data/action cycle.
+5. `src/views/ProfileView.vue` and `src/data/teamProfiles.js` for profile and
+   local fallback behavior.
+6. `src/components/chat/MessageInput.vue`, `MessageList.vue`, then
+   `src/views/ChatView.vue` and `InboxView.vue` for realtime flow.
+7. `src/views/NotificationsView.vue` and `TeamView.vue`.
+8. `API.md` when modifying a request, payload, permission rule, or realtime
+   event.
+
+## 18. Example End-To-End Stories
+
+### User logs in
+
+```text
+LoginView validates form
+ -> auth.login() sends POST /api/auth/login with credentials included
+ -> backend sets HttpOnly session cookie and returns user
+ -> saveAuthSession() caches display user and updates shared ref
+ -> route changes to HomeView
+ -> AppShell restores/confirms server session and subscribes live events
 ```
 
-Unknown endpoint, `404 Not Found`:
+### User creates and votes on a post
 
-```json
-{ "success": false, "error": "Endpoint not found." }
+```text
+Navbar Create link opens HomeView compose modal
+ -> HomeView sends POST /api/posts
+ -> feed reloads with the created post
+ -> user clicks upvote on PostCard
+ -> PostCard sends PUT /api/posts/:id/vote
+ -> returned updated post is emitted to HomeView
+ -> HomeView replaces that item and Vue redraws vote count/state
 ```
 
-Unexpected backend/database failure, `500 Internal Server Error`:
+### User chats in a community
 
-```json
-{ "success": false, "error": "Authentication service failed." }
+```text
+User joins community through REST
+ -> ChatView loads stored messages through REST
+ -> ChatView emits community:join over Socket.IO
+ -> after acknowledgement, MessageInput enables
+ -> send emits community:message:send
+ -> acknowledged/broadcast message is appended once
+ -> typing/read/reaction events update visible message state live
 ```
 
-Frontend behavior should use `error` for user-visible failures and should not
-assume unsuccessful requests throw automatically: `fetch()` resolves normally
-for HTTP `400`, `401`, `409`, and `500`.
+### Two users unlock direct chat
 
-## Suggested Frontend Auth Flow
-
-1. On app startup, call `GET /api/auth/session` with credentials included.
-2. If it returns `success: true`, store the returned `user` in reactive UI
-   state.
-3. If it returns `401`, clear local UI auth state and show the guest state.
-4. After registration or login success, immediately store the returned `user`
-   in UI state; the session cookie has already been set by the browser.
-5. On logout success, clear all locally stored/current user state.
-6. Never store passwords or try to read the session cookie from JavaScript.
-7. Use the returned `createdAt` timestamps for relative-time formatting.
-8. Join community chat rooms or direct chat rooms through Socket.IO only after
-   the matching REST authorization state exists.
-
-## Backend Development Setup
-
-Requires Node.js 20 or later.
-
-```bash
-npm install
-cp .env.example .env
-npm run db:migrate
-npm run dev
+```text
+Two users follow each other
+ -> backend creates mutual_follow notifications and a conversation entry
+ -> notification:new can update notification UI
+ -> direct:conversation can add the thread / show outside-inbox toast
+ -> clicking notification or toast opens /inbox?with=<other user>
+ -> InboxView loads history and joins direct socket room
+ -> the users can send realtime direct messages
 ```
 
-Set `DATABASE_URL` only in backend environment variables or the ignored local
-`.env` file. Never expose it through a `VITE_*` variable or commit it.
+## 19. Summary
 
-Available commands:
+This app is organized around route-level views and a small reusable component
+layer:
 
-```bash
-npm test            # Run endpoint contract tests
-npm run db:migrate  # Create PostgreSQL users/session tables
-npm start           # Start the HTTP server
-```
+- **Views** own page state and orchestrate API/socket behavior.
+- **Components** render repeated UI and emit user intentions upward.
+- **REST services** handle stored server data.
+- **Auth service** keeps the shared displayed user synchronized with the
+  cookie-backed server session.
+- **Realtime service** supplies one acknowledged Socket.IO connection for
+  messages, typing, read state, reactions, notification badges, and inbox
+  updates.
+- **Static team data** provides a local-only showcase alongside backend-driven
+  application data.
 
-## Railway Deployment Configuration
-
-Relevant backend environment variables:
-
-| Variable | Example / Purpose |
-| --- | --- |
-| `NODE_ENV` | `production` |
-| `DATABASE_URL` | Private PostgreSQL connection string. Never expose to frontend code. |
-| `FRONTEND_ORIGIN` | `https://your-frontend.example` |
-| `COOKIE_SECURE` | `true` for HTTPS deployment. This is the Railway default unless overridden. |
-| `COOKIE_SAME_SITE` | `none` when frontend and API are on separate sites. This is the Railway default unless overridden. |
-| `SESSION_COOKIE_NAME` | Optional; default `reddit_session`. |
-| `SESSION_TTL_SECONDS` | Optional; default `2592000` (30 days). |
-| `PROFILE_READ_RATE_LIMIT` | Optional; default `120` public/profile reads per window. |
-| `PROFILE_READ_RATE_WINDOW_SECONDS` | Optional; default `60`. |
-| `PORT` | Supplied by Railway. |
-
-Run `npm run db:migrate` against the Railway PostgreSQL database before the
-frontend begins using registration or login.
+When extending the app, start at the relevant view, reuse an existing service
+or add a narrowly scoped service function, keep authorization on the backend,
+and update `API.md` whenever the frontend/server contract changes.
