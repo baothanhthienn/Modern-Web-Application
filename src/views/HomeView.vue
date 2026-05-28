@@ -20,9 +20,12 @@
           </button>
         </nav>
 
-        <section v-if="recommendations.length" class="rec-section" aria-label="Recommended posts">
+        <section v-if="recommendations.length && !recDismissed" class="rec-section" aria-label="Recommended posts">
           <h3 class="rec-heading">
             <i class="fa-solid fa-wand-magic-sparkles"></i> Recommended for you
+            <button class="rec-dismiss" aria-label="Hide recommendations" @click="dismissRecs">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
           </h3>
           <div class="rec-stream">
             <div v-for="rec in recommendations" :key="rec.id" class="rec-wrap">
@@ -31,6 +34,10 @@
             </div>
           </div>
         </section>
+
+        <button v-if="recommendations.length && recDismissed" class="rec-restore" @click="restoreRecs">
+          <i class="fa-solid fa-wand-magic-sparkles"></i> Show recommendations
+        </button>
 
         <div v-if="loading" class="status"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading posts</div>
         <div v-else-if="error" class="status status--error">
@@ -95,7 +102,7 @@ import PostCard from '../components/PostCard.vue'
 import { createPost, getCommunities, getPosts, joinCommunity, leaveCommunity } from '../services/api.js'
 import { formatCount } from '../services/format.js'
 import { useAuthUser } from '../services/auth.js'
-import { scoreAndRankPosts, hasEnoughHistory, getExplanation } from '../services/recommendations.js'
+import { scoreAndRankPosts, hasEnoughHistory, getExplanation, loadHistory } from '../services/recommendations.js'
 
 const currentUser = useAuthUser()
 const route = useRoute()
@@ -111,6 +118,8 @@ const allowedSorts = new Set(sorts.map((sort) => sort.value))
 const activeSort = ref(allowedSorts.has(route.query.sort) ? route.query.sort : 'best')
 const posts = ref([])
 const recommendations = ref([])
+const cachedHistory = ref(null)
+const recDismissed = ref(localStorage.getItem('reddit_rec_dismissed') === '1')
 const nextCursor = ref(null)
 const loading = ref(true)
 const error = ref('')
@@ -121,6 +130,16 @@ const composerOpen = ref(false)
 const publishing = ref(false)
 const composeError = ref('')
 const draft = reactive({ community: '', title: '', image: '', description: '' })
+
+function dismissRecs() {
+  recDismissed.value = true
+  localStorage.setItem('reddit_rec_dismissed', '1')
+}
+
+function restoreRecs() {
+  recDismissed.value = false
+  localStorage.removeItem('reddit_rec_dismissed')
+}
 
 function resetDraft() {
   Object.assign(draft, { community: '', title: '', image: '', description: '' })
@@ -136,10 +155,19 @@ async function loadPosts(cursor) {
   error.value = ''
   if (!cursor) loading.value = true
   try {
-    const data = await getPosts({ sort: activeSort.value, cursor })
-    posts.value = cursor ? [...posts.value, ...data.posts] : data.posts
-    nextCursor.value = data.nextCursor
-    recommendations.value = hasEnoughHistory() ? scoreAndRankPosts(posts.value) : []
+    if (!cursor) {
+      const [data, history] = await Promise.all([getPosts({ sort: activeSort.value }), loadHistory()])
+      posts.value = data.posts
+      nextCursor.value = data.nextCursor
+      cachedHistory.value = history
+      recommendations.value = hasEnoughHistory(history) ? scoreAndRankPosts(posts.value, history) : []
+    } else {
+      const data = await getPosts({ sort: activeSort.value, cursor })
+      posts.value = [...posts.value, ...data.posts]
+      nextCursor.value = data.nextCursor
+      const history = cachedHistory.value
+      recommendations.value = hasEnoughHistory(history) ? scoreAndRankPosts(posts.value, history) : []
+    }
   } catch (loadError) {
     error.value = loadError.message
   } finally {
@@ -256,6 +284,11 @@ watch(currentUser, (user) => {
 .rec-section { margin-bottom: 20px; border-radius: 16px; border: 1px solid var(--reddit-border-soft); overflow: hidden; }
 .rec-heading { padding: 12px 16px 8px; font-size: 13px; font-weight: 700; color: var(--reddit-text-secondary); display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--reddit-border-soft); }
 .rec-heading i { color: var(--reddit-orange); }
+.rec-dismiss { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; color: var(--reddit-text-muted); display: grid; place-items: center; font-size: 13px; }
+.rec-dismiss:hover { background: var(--reddit-surface-hover); color: var(--reddit-text); }
+.rec-restore { display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; margin-bottom: 12px; border-radius: 18px; border: 1px solid var(--reddit-border-soft); background: var(--reddit-surface-inset); color: var(--reddit-text-secondary); font-size: 13px; font-weight: 600; }
+.rec-restore i { color: var(--reddit-orange); }
+.rec-restore:hover { background: var(--reddit-surface-hover); color: var(--reddit-text); }
 .rec-wrap { border-top: 1px solid var(--reddit-border-soft); }
 .rec-wrap:first-child { border-top: none; }
 .rec-reason { padding: 8px 16px 0; font-size: 11px; color: var(--reddit-text-muted); font-style: italic; }
