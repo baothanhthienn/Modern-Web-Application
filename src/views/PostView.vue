@@ -44,6 +44,7 @@ import PostCard from '../components/PostCard.vue'
 import { teamPostsById } from '../data/teamProfiles.js'
 import { getPost } from '../services/api.js'
 import { avatarLetter, formatCount } from '../services/format.js'
+import { trackViewedPost } from '../services/recommendations.js'
 
 const route = useRoute()
 const post = ref(null)
@@ -56,6 +57,7 @@ async function loadPost() {
   try {
     const data = await getPost(route.params.id)
     post.value = data.post
+    trackViewedPost(post.value)
   } catch (loadError) {
     const localPost = teamPostsById[String(route.params.id)]
     if (localPost) {

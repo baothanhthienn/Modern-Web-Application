@@ -20,6 +20,18 @@
           </button>
         </nav>
 
+        <section v-if="recommendations.length" class="rec-section" aria-label="Recommended posts">
+          <h3 class="rec-heading">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Recommended for you
+          </h3>
+          <div class="rec-stream">
+            <div v-for="rec in recommendations" :key="rec.id" class="rec-wrap">
+              <p class="rec-reason">{{ getExplanation(rec) }}</p>
+              <PostCard :post="rec" @updated="replacePost" />
+            </div>
+          </div>
+        </section>
+
         <div v-if="loading" class="status"><i class="fa-solid fa-circle-notch fa-spin"></i> Loading posts</div>
         <div v-else-if="error" class="status status--error">
           <p>{{ error }}</p>
@@ -83,6 +95,7 @@ import PostCard from '../components/PostCard.vue'
 import { createPost, getCommunities, getPosts, joinCommunity, leaveCommunity } from '../services/api.js'
 import { formatCount } from '../services/format.js'
 import { useAuthUser } from '../services/auth.js'
+import { scoreAndRankPosts, hasEnoughHistory, getExplanation } from '../services/recommendations.js'
 
 const currentUser = useAuthUser()
 const route = useRoute()
@@ -97,6 +110,7 @@ const sorts = [
 const allowedSorts = new Set(sorts.map((sort) => sort.value))
 const activeSort = ref(allowedSorts.has(route.query.sort) ? route.query.sort : 'best')
 const posts = ref([])
+const recommendations = ref([])
 const nextCursor = ref(null)
 const loading = ref(true)
 const error = ref('')
@@ -125,6 +139,7 @@ async function loadPosts(cursor) {
     const data = await getPosts({ sort: activeSort.value, cursor })
     posts.value = cursor ? [...posts.value, ...data.posts] : data.posts
     nextCursor.value = data.nextCursor
+    recommendations.value = hasEnoughHistory() ? scoreAndRankPosts(posts.value) : []
   } catch (loadError) {
     error.value = loadError.message
   } finally {
@@ -238,4 +253,10 @@ watch(currentUser, (user) => {
 .rail-card p { margin-bottom: 14px; line-height: 1.5; }
 .rail-link { color: var(--reddit-blue); font-size: 13px; font-weight: 600; text-decoration: none; }
 @media (max-width: 850px) { .home { padding: 10px 8px; } .rail { display: none; } .sort-row { overflow-x: auto; } }
+.rec-section { margin-bottom: 20px; border-radius: 16px; border: 1px solid var(--reddit-border-soft); overflow: hidden; }
+.rec-heading { padding: 12px 16px 8px; font-size: 13px; font-weight: 700; color: var(--reddit-text-secondary); display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--reddit-border-soft); }
+.rec-heading i { color: var(--reddit-orange); }
+.rec-wrap { border-top: 1px solid var(--reddit-border-soft); }
+.rec-wrap:first-child { border-top: none; }
+.rec-reason { padding: 8px 16px 0; font-size: 11px; color: var(--reddit-text-muted); font-style: italic; }
 </style>

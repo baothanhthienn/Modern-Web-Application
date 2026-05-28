@@ -47,6 +47,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { savePost, unsavePost, votePost } from '../services/api.js'
 import { formatCount, formatRelativeTime } from '../services/format.js'
+import { trackViewedPost, trackUpvotedPost } from '../services/recommendations.js'
 
 const props = defineProps({ post: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
@@ -54,6 +55,7 @@ const router = useRouter()
 const actionError = ref('')
 
 function openPost() {
+  trackViewedPost(props.post)
   router.push(`/post/${props.post.id}`)
 }
 
@@ -62,6 +64,7 @@ async function setVote(direction) {
   try {
     const vote = props.post.userVote === direction ? 0 : direction
     const { post } = await votePost(props.post.id, vote)
+    if (vote === 1) trackUpvotedPost(props.post)
     emit('updated', post)
   } catch (error) {
     actionError.value = error.message

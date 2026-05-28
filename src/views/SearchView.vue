@@ -65,6 +65,7 @@ import AppShell from '../components/AppShell.vue'
 import PostCard from '../components/PostCard.vue'
 import { getCommunities, joinCommunity, leaveCommunity, searchContent } from '../services/api.js'
 import { avatarLetter, formatCount } from '../services/format.js'
+import { trackSearchKeyword } from '../services/recommendations.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -96,6 +97,7 @@ function count(tab) {
 async function runSearch() {
   const text = query.value.trim()
   if (text.length < 2) return
+  trackSearchKeyword(text)
   router.replace({ path: '/search', query: { q: text } })
   submittedQuery.value = text
   searched.value = true
