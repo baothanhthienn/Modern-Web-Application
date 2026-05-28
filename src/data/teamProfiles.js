@@ -70,14 +70,14 @@ const TEAM_PROFILES = [
   },
   {
     id: 1005,
-    username: 'gurushanth_bramm',
-    displayName: 'Gurushanth Bramm',
+    username: 'gurushanth_brammananthan',
+    displayName: 'Gurushanth Brammananthan',
     studentId: '105342930',
     avatarUrl: null,
     bannerColor: '#FFF7E8',
     accentColor: '#C8811A',
     bio: 'Covered the narrative pages in the product, including the post view and this team overview surface.',
-    ownership: ['About Page', 'Post Page'],
+    ownership: ['Team Page', 'Post Page'],
   },
 ]
 
