@@ -13,7 +13,7 @@
             </header>
             <div class="discussion-empty">
               <i class="fa-regular fa-message"></i>
-              <p>Comment content is not available from the current API.</p>
+              <p>Comment content is not available through the current API.</p>
             </div>
           </section>
         </template>
