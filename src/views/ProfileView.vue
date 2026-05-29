@@ -6,8 +6,13 @@
       <header class="identity-header">
         <div class="banner" :style="{ background: profile.bannerColor || 'var(--reddit-surface-hover)' }"></div>
         <div class="identity">
-          <img v-if="profile.avatarUrl" :src="profile.avatarUrl" class="avatar avatar--image" :alt="`u/${profile.username}`" />
-          <span v-else class="avatar">{{ avatarLetter(profile.username) }}</span>
+          <div class="avatar-wrap" :class="{ 'avatar-wrap--editable': viewer.isSelf }" @click="viewer.isSelf ? (avatarModalOpen = true) : null">
+            <img v-if="profile.avatarUrl" :src="profile.avatarUrl" class="avatar avatar--image" :alt="`u/${profile.username}`" />
+            <span v-else class="avatar">{{ avatarLetter(profile.username) }}</span>
+            <div v-if="viewer.isSelf" class="avatar-edit-overlay">
+              <i class="fa-solid fa-camera"></i>
+            </div>
+          </div>
           <div class="identity-copy">
             <h1>{{ profile.displayName || profile.username }}</h1>
             <p>u/{{ profile.username }}</p>
@@ -138,6 +143,13 @@
       @close="editPostOpen = false"
       @submit="submitEditPost"
     />
+
+    <AvatarUploadModal
+      :open="avatarModalOpen"
+      :username="profile?.username"
+      @close="avatarModalOpen = false"
+      @saved="onAvatarSaved"
+    />
   </AppShell>
 </template>
 
@@ -147,6 +159,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppShell from '../components/AppShell.vue'
 import PostComposerModal from '../components/PostComposerModal.vue'
 import PostCard from '../components/PostCard.vue'
+import AvatarUploadModal from '../components/AvatarUploadModal.vue'
 import { teamPostsByUsername, teamProfilesByUsername } from '../data/teamProfiles.js'
 import { deletePost, followProfile, getCommunities, getPost, getProfile, getProfileActivity, getSavedItems, unfollowProfile, updatePost, updateUsername } from '../services/api.js'
 import { avatarLetter, formatCount, formatDate, formatRelativeTime } from '../services/format.js'
@@ -178,6 +191,7 @@ const savingPost = ref(false)
 const deletingPost = ref(false)
 const editableCommunities = ref([])
 const editPostDraft = ref({ community: '', title: '', image: '', description: '' })
+const avatarModalOpen = ref(false)
 const tabs = [
   { value: 'posts', label: 'Posts' },
   { value: 'comments', label: 'Comments' },
@@ -448,6 +462,10 @@ async function removeCurrentPost() {
   }
 }
 
+function onAvatarSaved({ avatarUrl }) {
+  if (profile.value) profile.value.avatarUrl = avatarUrl
+}
+
 watch(() => route.params.username, loadProfile, { immediate: true })
 </script>
 
@@ -458,7 +476,23 @@ watch(() => route.params.username, loadProfile, { immediate: true })
 .identity-header { border-bottom: 1px solid var(--reddit-border-soft); }
 .banner { height: 112px; border-radius: 16px 16px 0 0; }
 .identity { min-height: 106px; display: flex; align-items: center; gap: 18px; padding: 0 10px 0 20px; }
-.avatar { width: 88px; height: 88px; margin-top: -44px; display: grid; place-items: center; flex-shrink: 0; border: 5px solid white; border-radius: 50%; background: var(--reddit-blue); color: white; font-size: 34px; font-weight: 700; }
+.avatar-wrap { position: relative; flex-shrink: 0; margin-top: -44px; display: inline-flex; }
+.avatar-wrap--editable { cursor: pointer; }
+.avatar-wrap--editable:hover .avatar-edit-overlay { opacity: 1; }
+.avatar-edit-overlay {
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.48);
+  color: white;
+  font-size: 22px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.avatar { width: 88px; height: 88px; display: grid; place-items: center; border: 5px solid white; border-radius: 50%; background: var(--reddit-blue); color: white; font-size: 34px; font-weight: 700; }
 .avatar--image { object-fit: cover; }
 .identity-copy h1 { font-size: 24px; font-weight: 700; letter-spacing: -.03em; }
 .identity-copy p { color: var(--reddit-text-secondary); font-size: 13px; }

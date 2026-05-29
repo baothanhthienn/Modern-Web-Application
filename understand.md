@@ -9,7 +9,7 @@ This repository is a **Vue 3 frontend** for a Reddit-style social application.
 It provides screens for:
 
 - Registration and login.
-- A home feed of posts.
+- A home feed of posts with a personalised recommendation strip.
 - Post creation, voting, and saving.
 - Search for posts, communities, and people.
 - Public profiles, follows, and username changes.
@@ -129,6 +129,7 @@ src/
     auth.js                        Login/session/logout and shared auth state
     realtime.js                    Shared Socket.IO client and reactions
     format.js                      Formatting helpers for display
+    recommendations.js             Post scoring, history tracking, and server-side history sync
 
   data/
     teamProfiles.js                Local-only team profiles and generated posts
@@ -357,6 +358,20 @@ Exports and their users:
 | `getDirectConversations()` | `GET /chats/conversations` | Inbox thread list. |
 | `updateUsername()` | `PATCH /me/username` | Own-profile username dialog. |
 
+`src/services/recommendations.js` is a parallel service for client-side post
+scoring and server-side history sync. It does not use `apiRequest` for error
+surfacing — network failures are silently swallowed.
+
+| Function | Role |
+| --- | --- |
+| `loadHistory()` | Async. Fetches history from `GET /recommendations/history` when authenticated; falls back to `localStorage` on error or for guests. |
+| `trackViewedPost(post)` | Writes view entry to `localStorage` and fire-and-forgets `POST /recommendations/events` with `type: "view"`. |
+| `trackUpvotedPost(post)` | Writes upvote entry to `localStorage` and fire-and-forgets `POST /recommendations/events` with `type: "upvote"`. |
+| `trackSearchKeyword(keyword)` | Writes search entry to `localStorage` and fire-and-forgets `POST /recommendations/events` with `type: "search"`. |
+| `hasEnoughHistory(history?)` | Returns `true` if history has ≥ 3 viewed posts, ≥ 1 upvoted post, or ≥ 1 searched keyword. |
+| `scoreAndRankPosts(posts, history?)` | Scores feed posts by community/flair/keyword affinity; returns up to 5 with `_recScore` and `_recReasons`. |
+| `getExplanation(post)` | Returns a human-readable "Because of …" string from `_recReasons`. |
+
 ### `src/services/auth.js`: login state
 
 Authentication has two parts:
@@ -476,18 +491,32 @@ server itself.
 
 On mount the home page loads:
 
-- Posts through `getPosts({ sort })`.
+- Posts and recommendation history in parallel through `Promise.all([getPosts({ sort }), loadHistory()])`.
 - Communities through `getCommunities()`.
 
 Feed sorts are `best`, `hot`, `new`, `top`, and `rising`. The selected sort is
 represented in the URL query except for default `best`.
 
-Pagination uses `nextCursor`:
+Pagination uses `nextCursor`. On initial load, history is fetched alongside
+posts so the recommendation strip is populated in the same network round trip.
+On subsequent "load more" requests the cached `cachedHistory` ref is reused so
+no extra history request is made.
 
 ```text
-Initial request -> replace posts
-Load more request with cursor -> append posts
+Initial request -> replace posts, cache history, compute recommendations
+Load more request with cursor -> append posts, reuse cached history
 ```
+
+#### Recommendation strip
+
+When `hasEnoughHistory(history)` returns `true`, `scoreAndRankPosts(posts,
+history)` ranks feed posts by affinity and up to five are shown above the feed
+as a "Recommended for you" strip.
+
+The strip can be hidden with the **×** button in its heading. The dismissed
+state is persisted in `localStorage` under `reddit_rec_dismissed`. A "Show
+recommendations" pill button appears below the sort tabs to restore the strip.
+Dismissal is per-browser; it is not synced server-side.
 
 Authenticated users see a create-post trigger. The navbar can also open the
 same modal using `/?compose=true`. Submitting the form sends:
@@ -761,10 +790,15 @@ Primary endpoints expected by source code:
 | Inbox history | `GET /api/chats/users/:username/messages` |
 | Inbox list | `GET /api/chats/conversations` |
 | Notifications | `GET /api/notifications` |
+| Recommendations | `GET /api/recommendations/history` |
+| Recommendations | `POST /api/recommendations/events` |
 
 `API.md` additionally documents REST routes for read state and reactions, but
 the current chat/inbox Vue views implement those live interactions through
 Socket.IO events rather than calling the REST alternatives.
+
+Recommendation event calls are fire-and-forget: they are sent only when
+authenticated and network failures are silently discarded.
 
 ## 12. Socket.IO Event Contract Used By The Frontend
 
@@ -830,6 +864,7 @@ The UI depends on backend authorization:
 | Read/send community messages | Logged in and joined that community. |
 | Read/send direct messages | Logged in and mutual follow exists. |
 | Notifications/inbox listing | Logged-in session. |
+| Read/write recommendation history | Logged-in session. |
 
 The frontend may hide controls, but the backend must enforce the rule because
 browser code can be bypassed.
