@@ -53,6 +53,8 @@ not need the backend.
 | Custom CSS | Reddit-inspired colors, spacing, and component styling. |
 | Font Awesome | Icons used throughout the UI. |
 | Socket.IO Client | Realtime messages, typing, seen state, reactions, and notification updates. |
+| vue-advanced-cropper | In-browser image zoom and crop for profile picture upload. |
+| Cloudinary | External image hosting CDN. The frontend uploads images directly from the browser using an unsigned upload preset; the backend stores only the resulting HTTPS URLs. |
 | Express API, documented externally | Authentication and stored application data. |
 | PostgreSQL, documented externally | Backend persistence; there is no database code in this frontend repository. |
 
@@ -137,6 +139,8 @@ src/
   components/
     AppShell.vue                   Shared header/sidebar/toast layout
     PostCard.vue                   Shared post renderer and post actions
+    PostComposerModal.vue          Shared modal for creating and editing posts
+    AvatarUploadModal.vue          Modal for uploading, cropping, and re-editing profile pictures
     chat/
       MessageList.vue              Shared message display/reaction UI
       MessageInput.vue             Shared message composer/typing emitter
@@ -343,6 +347,8 @@ Exports and their users:
 | `getPosts()` | `GET /posts` | Home feed. |
 | `createPost()` | `POST /posts` | Home composer. |
 | `getPost()` | `GET /posts/:id` | Single post and full profile post hydration. |
+| `updatePost()` | `PATCH /posts/:id` | Profile post-edit modal. |
+| `deletePost()` | `DELETE /posts/:id` | Profile post-delete button. |
 | `votePost()` | `PUT /posts/:id/vote` | PostCard voting. |
 | `savePost()` / `unsavePost()` | `PUT` / `DELETE /posts/:id/saved` | PostCard saved state. |
 | `searchContent()` | `GET /search` | Search screen. |
@@ -357,6 +363,8 @@ Exports and their users:
 | `getDirectMessages()` | `GET /chats/users/:username/messages` | Initial direct history. |
 | `getDirectConversations()` | `GET /chats/conversations` | Inbox thread list. |
 | `updateUsername()` | `PATCH /me/username` | Own-profile username dialog. |
+| `getAvatar()` | `GET /me/avatar` | Avatar modal — loads current avatar URL, original URL, and crop coordinates. |
+| `updateAvatar()` | `PATCH /me/avatar` | Avatar modal — saves or clears avatar URL, original URL, and crop coordinates. |
 
 `src/services/recommendations.js` is a parallel service for client-side post
 scoring and server-side history sync. It does not use `apiRequest` for error
@@ -425,6 +433,55 @@ views remove listeners/leave rooms rather than calling it.
 | `avatarLetter('programming')` | `P` |
 
 ## 9. Reusable UI Components
+
+### `PostComposerModal.vue`
+
+`PostComposerModal` is a shared modal form used for both creating new posts
+(opened from `HomeView`) and editing existing posts (opened from
+`ProfileView`). The caller controls the heading, submit button label, and the
+initial draft values through props. The modal emits `submit` with the current
+draft object and `close` when cancelled. It does not call the API itself — the
+owning view is responsible for the actual `createPost()` or `updatePost()`
+call, error handling, and closing the modal on success.
+
+Fields: community (dropdown from the passed `communities` array), title, image
+URL, and body text.
+
+### `AvatarUploadModal.vue`
+
+`AvatarUploadModal` handles the full profile picture flow inside a single
+modal. It is opened from `ProfileView` only when `viewer.isSelf` is true.
+
+On open it calls `getAvatar()` to load any existing avatar data — the current
+display URL, the original unedited URL, and the saved crop coordinates. It then
+presents two steps:
+
+**Step 1 — Select**: Shows the current avatar (or letter fallback). Three
+actions are available depending on what data exists: choose a new photo (file
+picker), re-edit the existing photo (loads the stored original URL into the
+cropper with the saved crop position restored), and remove the current photo.
+
+**Step 2 — Crop**: Renders a `vue-advanced-cropper` `Cropper` with a
+`CircleStencil` — the stencil is always circular to match how avatars are
+displayed. The user can drag, resize, and zoom. When saving:
+
+1. If a new file was selected, it is uploaded to Cloudinary to get
+   `originalUrl` (full-resolution, for future re-edits).
+2. The cropped canvas is exported as a JPEG blob and uploaded to Cloudinary to
+   get `avatarUrl` (the displayed image).
+3. `updateAvatar({ avatarUrl, originalUrl, crop })` saves both URLs and the
+   crop coordinates `{ left, top, width, height }` to the backend.
+4. The modal emits `saved({ avatarUrl })` so `ProfileView` updates
+   `profile.avatarUrl` reactively without a page reload.
+
+On re-edit the original is never re-uploaded — only a new cropped version is
+produced. The Cloudinary upload uses an unsigned preset; no API secret is
+needed in the frontend. Two environment variables configure this:
+
+```text
+VITE_CLOUDINARY_CLOUD_NAME
+VITE_CLOUDINARY_UPLOAD_PRESET
+```
 
 ### `PostCard.vue`
 
@@ -580,7 +637,31 @@ For ordinary users the view:
 | --- | --- |
 | `viewer.canMessage` | Chat link to `/inbox?with=<username>`. |
 | Authenticated and not self | Follow/Following button. |
-| `viewer.isSelf` | Change username button and Saved tab. |
+| `viewer.isSelf` | Change username button, Saved tab, avatar edit overlay, and post management tools. |
+
+#### Avatar upload
+
+When `viewer.isSelf` is true the avatar element gains a camera-icon overlay on
+hover. Clicking it opens `AvatarUploadModal`. After the modal emits `saved`,
+`profile.avatarUrl` is updated in place so the new picture appears immediately
+without reloading the profile.
+
+#### Post edit and delete
+
+When the signed-in user views their own Posts tab, a **Post tools** bar appears
+above the currently displayed post. It provides two actions:
+
+- **Edit**: Opens `PostComposerModal` pre-filled with the post's current
+  community, title, image URL, and description. On submit, `updatePost()` sends
+  a `PATCH /api/posts/:id` request and the updated post object replaces the
+  existing one in local state.
+- **Delete**: Calls `deletePost()` (`DELETE /api/posts/:id`). On success the
+  post is removed from the local items list. If that was the last visible post
+  and more pages exist, the next page is fetched automatically.
+
+The post tools bar is only rendered when `canManageActivePost` is true, which
+requires the session username to exactly match the post's `author` field and
+the post must not be `localOnly`.
 
 Tabs currently displayed by this implementation are:
 
@@ -776,6 +857,8 @@ Primary endpoints expected by source code:
 | Feed/posts | `GET /api/posts?sort=...&limit=...&cursor=...` |
 | Feed/posts | `POST /api/posts` |
 | Feed/posts | `GET /api/posts/:postId` |
+| Feed/posts | `PATCH /api/posts/:postId` |
+| Feed/posts | `DELETE /api/posts/:postId` |
 | Feed/posts | `PUT /api/posts/:postId/vote` |
 | Feed/posts | `PUT`, `DELETE /api/posts/:postId/saved` |
 | Search | `GET /api/search?q=...` |
@@ -786,6 +869,8 @@ Primary endpoints expected by source code:
 | Profile | `GET /api/me/saved` |
 | Profile | `POST`, `DELETE /api/profiles/:username/follow` |
 | Profile | `PATCH /api/me/username` |
+| Avatar | `GET /api/me/avatar` |
+| Avatar | `PATCH /api/me/avatar` |
 | Chat history | `GET /api/chats/communities/:name/messages` |
 | Inbox history | `GET /api/chats/users/:username/messages` |
 | Inbox list | `GET /api/chats/conversations` |
@@ -988,6 +1073,33 @@ User joins community through REST
  -> send emits community:message:send
  -> acknowledged/broadcast message is appended once
  -> typing/read/reaction events update visible message state live
+```
+
+### User uploads a profile picture
+
+```text
+User visits their own profile
+ -> avatar-wrap overlay appears on hover (viewer.isSelf is true)
+ -> user clicks avatar -> avatarModalOpen = true
+ -> AvatarUploadModal opens and calls GET /api/me/avatar
+ -> modal shows current avatar preview (or letter fallback)
+
+New upload path:
+ -> user clicks Choose photo -> native file picker
+ -> selected File stored, URL.createObjectURL() shown in Cropper
+ -> user drags/resizes the CircleStencil to frame the crop
+ -> user clicks Save picture
+ -> original File uploaded to Cloudinary -> originalUrl
+ -> cropped canvas exported as JPEG blob -> uploaded to Cloudinary -> avatarUrl
+ -> PATCH /api/me/avatar { avatarUrl, originalUrl, crop: { left, top, width, height } }
+ -> modal emits saved({ avatarUrl }) -> ProfileView updates profile.avatarUrl
+
+Re-edit path (later session):
+ -> modal loads avatarOriginalUrl and avatarCrop from GET /api/me/avatar
+ -> Cropper opens with originalUrl as src and saved crop coordinates restored
+ -> user adjusts crop -> Save picture
+ -> only new cropped blob uploaded to Cloudinary (original is reused)
+ -> PATCH /api/me/avatar with same originalUrl, new avatarUrl, new crop
 ```
 
 ### Two users unlock direct chat
