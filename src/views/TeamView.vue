@@ -5,7 +5,7 @@
         <header class="hero-card">
           <div class="hero-copy">
             <span class="eyebrow">r/teamnotes</span>
-            <h1>A modernized web app project collaboration. Built like a Reddit thread, owned like a product team.</h1>
+            <h1>A modern web project collaboration. Built like a Reddit thread, owned like a product team.</h1>
           </div>
           <div class="hero-meta row g-3">
             <div class="col-6 col-md-3" v-for="stat in heroStats" :key="stat.label">
