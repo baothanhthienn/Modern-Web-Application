@@ -144,3 +144,11 @@ export function getDirectConversations({ limit = 30, cursor } = {}) {
 export function updateUsername(username) {
   return jsonRequest('/me/username', 'PATCH', { username })
 }
+
+export function getAvatar() {
+  return apiRequest('/me/avatar')
+}
+
+export function updateAvatar({ avatarUrl, originalUrl, crop }) {
+  return jsonRequest('/me/avatar', 'PATCH', { avatarUrl, originalUrl, crop })
+}
