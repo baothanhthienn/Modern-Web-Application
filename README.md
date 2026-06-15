@@ -323,15 +323,10 @@ GET https://modern-web-application-backend-production.up.railway.app/api/auth/se
 
 ## Team
 
-This project was built collaboratively by five students for COS 30043 at Swinburne University of Technology.
+This project was built collaboratively by me for COS 30043 at Swinburne University of Technology.
 
-| Name | Student ID | Pages Owned |
-|---|---|---|
-| Nikila Hindagolla | 105948891 | Home Page, Search Page |
-| Hiruna Chamuditha | 105236839 | Profile Detail Page, Notification Page |
-| Nguyen Gia Bao Pham | 105292789 | Real-time Chat Page, Inbox Page |
-| Leon Nhor | 104004239 | Create Account Page, Login Page |
-| Gurushanth Brammananthan | 105342930 | Team Page, Post Page |
+| Name | Student ID | 
+| Nguyen Gia Bao Pham | 105292789 | 
 
 ---
 
